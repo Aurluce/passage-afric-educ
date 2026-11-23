@@ -14,4 +14,4 @@ frontend/out/
 
 # Divers
 .DS_Store
-*.log
+*.log.git.prefiltered-backup/
