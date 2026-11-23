@@ -197,8 +197,13 @@ class Anomalie(models.Model):
     cree_le = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["eleve", "type", "date", "passage"],
+                name="uniq_anomalie_eleve_type_date_passage",
+            ),
+        ]
         indexes = [models.Index(fields=["eleve", "date"])]
-
 
 class MessageSortant(models.Model):
     class Etat(models.TextChoices):
