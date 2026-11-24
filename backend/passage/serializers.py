@@ -38,3 +38,25 @@ class UtilisateurPublicSerializer(serializers.ModelSerializer):
         model = Utilisateur
         fields = ["id", "identifiant", "nom", "role"]
         read_only_fields = fields
+
+
+
+class PassageSyncItemSerializer(serializers.Serializer):
+    """Un passage individuel dans un lot de synchronisation."""
+    event_id_local = serializers.UUIDField()
+    badge_id = serializers.IntegerField()
+    point_id = serializers.IntegerField()
+    heure_locale = serializers.DateTimeField()
+
+
+class PassageSyncLotSerializer(serializers.Serializer):
+    """Un lot de passages à synchroniser."""
+    appareil_id = serializers.CharField(max_length=64)
+    passages = PassageSyncItemSerializer(many=True)
+
+    def validate_passages(self, value):
+        if not value:
+            raise serializers.ValidationError("Le lot ne peut pas être vide.")
+        if len(value) > 500:
+            raise serializers.ValidationError("Lot trop volumineux (max 500 passages).")
+        return value
