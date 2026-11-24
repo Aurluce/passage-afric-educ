@@ -57,14 +57,16 @@ def contexte():
 
 def test_mode_degrade_sans_cle_gabarit_exact(contexte):
     """Garde-fou 2 : sans clé, la synthèse est produite à partir du gabarit."""
-    resultat = generer_synthese(contexte["classe"], JOUR)
+    from passage.services.ai import GabaritProvider
+
+    resultat = generer_synthese(
+        contexte["classe"], JOUR, provider=GabaritProvider(),
+    )
     assert resultat.origine == "GABARIT"
     assert "1 élèves présents sur 1" in resultat.synthese.texte
-    # Le chemin journalisé est GABARIT
     journal = JournalAppelIA.objects.last()
     assert journal.chemin == "GABARIT"
     assert journal.cout_estime == 0
-
 
 def test_modele_repond_json_valide(contexte):
     """Garde-fou 1 : un JSON valide est accepté, chemin MODELE."""
