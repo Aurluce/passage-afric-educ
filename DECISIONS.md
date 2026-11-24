@@ -84,3 +84,19 @@
   - Corriger silencieusement (`heure_locale := heure_serveur`) : on perd l'information et on masque un problème matériel.
 - **Seuil** : 30 minutes (`HORLOGE_TOLERANCE_MINUTES` dans `services/anomalies.py`).
 - **Lien** : réutilise la 5ᵉ anomalie `HORLOGE_SUSPECTE` déjà détectée par `detect_anomalies`.
+
+
+
+## D14 — Ordre : idempotence avant consommation du nonce
+
+- **Option retenue** : dans `synchroniser_passages`, on vérifie `(badge, event_id_local)` existe **avant** d'appeler `verifier_et_consommer`. Un rejeu du même lot renvoie `ignored` sans re-vérifier la signature.
+- **Option écartée** : signature avant idempotence — plus strict, mais casse le scénario « relancer la sync » (le client renvoie les mêmes nonces, déjà consommés).
+- **Risque accepté** : un attaquant qui connaît un `event_id_local` existant peut renvoyer le lot et obtenir `ignored`. Il ne crée pas de doublon, donc pas d'impact.
+
+
+
+## D15 — Cloisonnement parent : 404 au lieu de 403
+
+- **Option retenue** : un parent qui demande un élève d'un autre reçoit **404**. Le filtre `parents__parent=request.user` est appliqué dans le `QuerySet`, avant le `get_object_or_404`.
+- **Option écartée** : 403 — révèle l'existence de l'élève à un parent non autorisé.
+- **Test associé** : `test_parent_change_id_dans_url_refuse_404`.

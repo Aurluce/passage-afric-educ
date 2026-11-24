@@ -2,6 +2,7 @@
 l'existence de l'identifiant : message d'erreur identique."""
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from .models import Utilisateur, Eleve, Passage, Anomalie
 from rest_framework import serializers
 
 from .models import Utilisateur
@@ -59,3 +60,34 @@ class PassageSyncLotSerializer(serializers.Serializer):
         if len(value) > 500:
             raise serializers.ValidationError("Lot trop volumineux (max 500 passages).")
         return value
+
+
+
+
+class EleveSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Eleve
+        fields = ["id", "nom", "classe", "etablissement"]
+        read_only_fields = fields
+
+
+class PassageSerializer(serializers.ModelSerializer):
+    point_libelle = serializers.CharField(source="point.libelle", read_only=True)
+    eleve_nom = serializers.CharField(source="badge.eleve.nom", read_only=True)
+
+    class Meta:
+        model = Passage
+        fields = [
+            "id", "point_libelle", "eleve_nom", "heure_locale",
+            "heure_serveur", "appareil_id", "sync_etat",
+        ]
+        read_only_fields = fields
+
+
+class AnomalieSerializer(serializers.ModelSerializer):
+    eleve_nom = serializers.CharField(source="eleve.nom", read_only=True)
+
+    class Meta:
+        model = Anomalie
+        fields = ["id", "eleve_nom", "type", "date", "traite", "cree_le"]
+        read_only_fields = fields
