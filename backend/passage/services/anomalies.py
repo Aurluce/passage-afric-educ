@@ -2,24 +2,16 @@
 Détection des anomalies de passage.
 
 Ce module est volontairement pur : il ne dépend ni de la commande CLI
-ni de la requête HTTP. Il est testable directement (voir
-`tests/test_anomalies.py`) et peut être appelé depuis un cron, une vue
-admin, un endpoint REST, ou un test.
+ni de la requête HTTP. Testable directement via `detecter_anomalies`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 from django.utils import timezone
 
-from passage.models import (
-    Anomalie,
-    Badge,
-    Eleve,
-    Itineraire,
-    Passage,
-)
+from passage.models import Anomalie, Eleve, Itineraire, Passage
 
 DOUBLE_SCAN_WINDOW_SECONDS = 60
 HORLOGE_TOLERANCE_MINUTES = 30
@@ -37,7 +29,6 @@ class RapportDetection:
 
 
 def detecter_anomalies(jour: date | None = None) -> RapportDetection:
-    """Détecte les anomalies pour `jour` (défaut : aujourd'hui)."""
     jour = jour or timezone.localdate()
     rapport = RapportDetection(date=jour)
 
@@ -47,57 +38,65 @@ def detecter_anomalies(jour: date | None = None) -> RapportDetection:
         )
         if not itineraires:
             continue
-
         _detecter_absences(eleve, itineraires, jour, rapport)
         _detecter_hors_fenetre_et_point_inattendu(eleve, itineraires, jour, rapport)
         _detecter_doubles_scans(eleve, jour, rapport)
         _detecter_horloges_suspectes(eleve, jour, rapport)
-
     return rapport
 
 
-# ---------------------------------------------------------------------------
-# Règles individuelles
-# ---------------------------------------------------------------------------
 def _detecter_absences(eleve, itineraires, jour, rapport):
-    """Point attendu dont la fenêtre est clôturée mais sans passage."""
     maintenant = timezone.localtime()
     for itin in itineraires:
-        # Jours d'application : "1111100" → index 0 = lundi.
         if itin.jours_application[jour.weekday()] != "1":
             continue
         fin_fenetre = datetime.combine(jour, itin.heure_fin, tzinfo=maintenant.tzinfo)
         if fin_fenetre >= maintenant:
-            continue  # fenêtre non encore clôturée
-        debut_fenetre = datetime.combine(jour, itin.heure_debut, tzinfo=maintenant.tzinfo)
-        existe = Passage.objects.filter(
+            continue
+
+        passages = Passage.objects.filter(
             badge__eleve=eleve,
             point=itin.point,
-            heure_locale__gte=debut_fenetre,
-            heure_locale__lte=fin_fenetre,
+            heure_locale__date=jour,
             sync_etat=Passage.SyncEtat.RECU,
-        ).exists()
-        if existe:
-            continue
-        anomalie, creee = Anomalie.objects.get_or_create(
-            eleve=eleve,
-            type=Anomalie.Type.ABSENCE,
-            date=jour,
-            passage=None,
-            defaults={"traite": False},
+        ).values_list("heure_locale", flat=True)
+
+        dans_fenetre = any(
+            itin.heure_debut <= timezone.localtime(h).time() <= itin.heure_fin
+            for h in passages
         )
-        (rapport.anomalies_creees if creee else rapport.anomalies_existantes).append(anomalie)
+        if dans_fenetre:
+            continue
+
+        # D11 : un passage hors fenêtre prouve la présence, on ne crée
+        # pas d'ABSENCE (le HORS_FENETRE porte l'information).
+        hors_fenetre_existe = any(
+            not (itin.heure_debut <= timezone.localtime(h).time() <= itin.heure_fin)
+            for h in passages
+        )
+        if hors_fenetre_existe:
+            continue
+
+        anomalie = Anomalie.objects.filter(
+            eleve=eleve, type=Anomalie.Type.ABSENCE, date=jour, passage=None,
+        ).first()
+        if anomalie is None:
+            anomalie = Anomalie.objects.create(
+                eleve=eleve, type=Anomalie.Type.ABSENCE, date=jour,
+                passage=None, traite=False,
+            )
+            rapport.anomalies_creees.append(anomalie)
+        else:
+            rapport.anomalies_existantes.append(anomalie)
 
 
 def _detecter_hors_fenetre_et_point_inattendu(eleve, itineraires, jour, rapport):
-    """Passages qui ne tombent dans aucune fenêtre valide de l'itinéraire."""
     itineraires_par_point = {it.point_id: it for it in itineraires}
     passages = Passage.objects.filter(
         badge__eleve=eleve,
         heure_locale__date=jour,
         sync_etat=Passage.SyncEtat.RECU,
     ).select_related("point", "badge")
-
     for p in passages:
         itin = itineraires_par_point.get(p.point_id)
         if itin is None:
@@ -109,7 +108,6 @@ def _detecter_hors_fenetre_et_point_inattendu(eleve, itineraires, jour, rapport)
 
 
 def _detecter_doubles_scans(eleve, jour, rapport):
-    """Deux passages du même badge au même point à < 60 s d'écart."""
     passages = list(
         Passage.objects.filter(
             badge__eleve=eleve,
@@ -123,29 +121,22 @@ def _detecter_doubles_scans(eleve, jour, rapport):
             delta = (p.heure_locale - precedent.heure_locale).total_seconds()
             if 0 <= delta < DOUBLE_SCAN_WINDOW_SECONDS:
                 _creer_ou_signaler(Anomalie.Type.DOUBLE_SCAN, eleve, jour, p, rapport)
-                precedent = p
-                continue
         precedent = p
 
 
 def _detecter_horloges_suspectes(eleve, jour, rapport):
-    """5e anomalie : heure_locale et heure_serveur divergent de plus de 30 min."""
     seuil = timedelta(minutes=HORLOGE_TOLERANCE_MINUTES)
-    passages = Passage.objects.filter(
-        badge__eleve=eleve,
-        heure_serveur__date=jour,
-    )
-    for p in passages:
+    for p in Passage.objects.filter(badge__eleve=eleve, heure_serveur__date=jour):
         if abs(p.heure_locale - p.heure_serveur) > seuil:
             _creer_ou_signaler(Anomalie.Type.HORLOGE_SUSPECTE, eleve, jour, p, rapport)
 
 
 def _creer_ou_signaler(type_, eleve, jour, passage, rapport):
     anomalie, creee = Anomalie.objects.get_or_create(
-        eleve=eleve,
-        type=type_,
-        date=jour,
-        passage=passage,
+        eleve=eleve, type=type_, date=jour, passage=passage,
         defaults={"traite": False},
     )
-    (rapport.anomalies_creees if creee else rapport.anomalies_existantes).append(anomalie)
+    if creee:
+        rapport.anomalies_creees.append(anomalie)
+    else:
+        rapport.anomalies_existantes.append(anomalie)

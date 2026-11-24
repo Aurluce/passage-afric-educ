@@ -59,3 +59,13 @@
 - **Option retenue** : passages historiques et anomalies à `2025-01-15` (mercredi) ; passages « live » de la démo à `timezone.localdate()`.
 - **Raison** : la date fixe rend les tests reproductibles (pas de dépendance à la date d'exécution) ; la date du jour permet à la vidéo de montrer un scan en direct et son anomalie.
 - **Option écartée** : tout à `today` — rend les tests fragiles les week-ends et jours fériés (l'itinéraire Lun–Ven ne s'applique pas).
+
+
+## D11 — Un HORS_FENETRE supprime l'ABSENCE correspondante
+
+- **Constat** : un passage hors fenêtre (ex. sortie à 14:10 pour une fenêtre 15:30–16:15) déclenchait à la fois `HORS_FENETRE` (le passage est hors plage) et `ABSENCE` (aucun passage dans la fenêtre). Le parent recevait deux messages contradictoires.
+- **Option retenue** : si un passage existe sur le point mais hors fenêtre, on ne crée pas d'`ABSENCE` — le `HORS_FENETRE` porte l'information la plus précise (« présent, mais en dehors de la plage attendue »).
+- **Options écartées** :
+  - Créer les deux : message contradictoire au parent.
+  - Créer seulement ABSENCE : faux, l'élève est passé.
+- **Conséquence** : le seed produit 3 anomalies (ABSENCE E2, HORS_FENETRE E1, DOUBLE_SCAN E3) au lieu de 4.
