@@ -2,6 +2,8 @@
 Abstraction du fournisseur LLM pour la synthèse (D16 + D18).
 
 - `OpenAIProvider` : appel réel, utilisé si AI_API_KEY est présente.
+  Compatible OpenAI et tout fournisseur OpenAI-compatible (Groq, Together,
+  Mistral…) grâce au paramètre `base_url`.
 - `GabaritProvider` : fallback exact, utilisé si pas de clé ou si l'appel échoue.
 
 Le contrat du provider est strict : il reçoit des chiffres déjà calculés
@@ -52,25 +54,27 @@ class GabaritProvider(SyntheseProvider):
 
 class OpenAIProvider(SyntheseProvider):
     """
-    Appel réel à l'API OpenAI (chat completions).
+    Appel réel — compatible OpenAI et tout fournisseur OpenAI-compatible
+    (Groq, Together, Mistral…). Le `base_url` est injecté par `get_provider`.
 
-    Coût estimé : tarif GPT-4o-mini (~0,15 $/M entrée, ~0,60 $/M sortie),
-    converti approximativement en euros (1 € ≈ 1,08 $).
+    Coût estimé : tarifs GPT-4o-mini par défaut, convertis en euros.
     """
 
     PRIX_ENTREE_USD_PAR_MILLION = 0.15
     PRIX_SORTIE_USD_PAR_MILLION = 0.60
     USD_VERS_EUR = 0.92
 
-    def __init__(self, api_key: str, modele: str = "gpt-4o-mini"):
+    def __init__(self, api_key: str, modele: str = "gpt-4o-mini", base_url: str | None = None):
         self.api_key = api_key
         self.modele = modele
+        self.base_url = base_url
 
     def reformuler(self, gabarit: str, chiffres: dict) -> ReponseModele:
         # Import local pour ne pas exiger openai si le mode dégradé est actif
         from openai import OpenAI
 
-        client = OpenAI(api_key=self.api_key)
+        client = OpenAI(api_key=self.api_key, base_url=self.base_url) if self.base_url \
+                 else OpenAI(api_key=self.api_key)
 
         system = (
             "Tu reformules une synthèse de présences scolaires en français, "
@@ -108,13 +112,32 @@ class OpenAIProvider(SyntheseProvider):
         )
 
 
+_BASE_URLS = {
+    "openai": None,
+    "groq": "https://api.groq.com/openai/v1",
+    "together": "https://api.together.xyz/v1",
+}
+
+
 def get_provider() -> SyntheseProvider:
-    """Renvoie OpenAIProvider si clé présente, GabaritProvider sinon."""
+    """Renvoie OpenAIProvider si clé présente, GabaritProvider sinon.
+
+    Le `base_url` dépend de `settings.AI_PROVIDER` (openai / groq / together).
+    Une seule définition de cette fonction doit exister dans le module :
+    Python prend la dernière définie, donc un doublon écraserait silencieusement
+    la version corrigée.
+    """
     from django.conf import settings
     api_key = getattr(settings, "AI_API_KEY", "") or os.getenv("AI_API_KEY", "")
     if not api_key:
         return GabaritProvider()
-    return OpenAIProvider(api_key=api_key, modele=getattr(settings, "AI_MODEL", "gpt-4o-mini"))
+    provider_name = getattr(settings, "AI_PROVIDER", "openai") or "openai"
+    base_url = _BASE_URLS.get(provider_name)
+    return OpenAIProvider(
+        api_key=api_key,
+        modele=getattr(settings, "AI_MODEL", "gpt-4o-mini"),
+        base_url=base_url,
+    )
 
 
 def valider_sortie(brut: str) -> str | None:

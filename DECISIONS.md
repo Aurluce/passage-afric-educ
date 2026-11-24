@@ -118,3 +118,12 @@
 
 - **Option retenue** : le modèle répond en JSON `{"texte": "..."}`, validé par `SortieSynthese` (Pydantic, `min_length=10`, `max_length=500`). Une réponse non conforme déclenche **un seul** retry, puis bascule sur le gabarit. Le chemin effectif (`MODELE`, `RETRY`, `GABARIT`, `PLAFOND`) est journalisé dans `JournalAppelIA`.
 - **Options écartées** : pas de retry (fragile face aux erreurs transitoires), plusieurs retries (coût multiplié sans bénéfice).
+
+
+
+
+## D20 — Plafond de notification compté par `anomalie__date`
+
+- **Constat** : `_messages_du_jour` filtrait initialement sur `MessageSortant.date__date` (champ `auto_now_add`). En test, les anomalies sont datées `2025-01-15` alors que les `MessageSortant` sont insérés aujourd'hui, donc le compteur restait à 0 et le plafond ne bloquait pas.
+- **Option retenue** : compter par `anomalie__date=jour`. C'est sémantiquement juste : le plafond limite le nombre de notifications pour les **anomalies du jour**, pas le nombre d'insertions du jour.
+- **Complément** : `plafond` est désormais injectable en paramètre de `notifier_anomalies`, pour les tests et pour un éventuel ajustement par établissement.
