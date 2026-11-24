@@ -1,4 +1,7 @@
 
+[![CI](https://github.com/Aurluce/passage-afric-educ/actions/workflows/ci.yml/badge.svg)](https://github.com/Aurluce/passage-afric-educ/actions/workflows/ci.yml)
+
+
 # Passage — Afric'Éduc
 
 Suivi des passages d'élèves par badge, en conditions de réseau dégradé, avec synthèse assistée par IA.
