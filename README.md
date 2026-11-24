@@ -172,7 +172,8 @@ Couverture des scénarios §3.4 du sujet :
 
 Chaque point de la section 2.2 du sujet :
 
-- **Mots de passe hachés** : `set_password` Django (PBKDF2 par défaut), longueur minimale 8 (`AUTH_PASSWORD_VALIDATORS`).
+- **Mots de passe hachés et validés** : `set_password` Django (PBKDF2 par défaut). Le responsable peut modifier son mot de passe après vérification de l'ancien; le nouveau est validé par les règles Django configurées : 8 caractères minimum, pas de mot de passe courant, pas de mot de passe entièrement numérique, et pas de ressemblance excessive avec ses informations personnelles.
+- **Compte responsable** : l'identifiant et le nom affiché sont modifiables depuis « Mon compte »; le rôle reste contrôlé côté serveur et ne peut pas être modifié par cette interface.
 - **Tentatives limitées** : throttle DRF `login: 5/min` ; message d'erreur identique que l'identifiant existe ou non (`LoginSerializer` → « Identifiants invalides »).
 - **Session/JWT à durée limitée, déconnexion effective** : JWT access 30 min, refresh 1 jour, `LogoutView` blackliste le refresh (table `token_blacklist`).
 - **Contrôle de rôle serveur** : permissions `EstResponsable`, `EstAgent`, `EstParent` dans `passage/permissions.py`. Test : `test_cloisonnement::test_agent_interdit_sur_endpoint_parent`.
