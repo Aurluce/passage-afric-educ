@@ -2,10 +2,10 @@
 l'existence de l'identifiant : message d'erreur identique."""
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
-from .models import Utilisateur, Eleve, Passage, Anomalie
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import Utilisateur
+from .models import Utilisateur, Eleve, Passage, Anomalie, Badge
 
 MESSAGE_ERREUR_IDENTIQUE = "Identifiants invalides."
 
@@ -39,6 +39,125 @@ class UtilisateurPublicSerializer(serializers.ModelSerializer):
         model = Utilisateur
         fields = ["id", "identifiant", "nom", "role"]
         read_only_fields = fields
+
+
+class ResponsableCompteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Utilisateur
+        fields = ["id", "identifiant", "nom", "role"]
+        read_only_fields = ["id", "role"]
+
+    def validate(self, attrs):
+        extra_fields = set(self.initial_data) - {"identifiant", "nom"}
+        if extra_fields:
+            raise serializers.ValidationError(
+                {"detail": "Seuls l’identifiant et le nom peuvent être modifiés."}
+            )
+        return attrs
+
+
+class ResponsableMotDePasseSerializer(serializers.Serializer):
+    mot_de_passe_actuel = serializers.CharField(write_only=True, trim_whitespace=False)
+    nouveau_mot_de_passe = serializers.CharField(write_only=True, trim_whitespace=False)
+    confirmation_mot_de_passe = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        extra_fields = set(self.initial_data) - {
+            "mot_de_passe_actuel",
+            "nouveau_mot_de_passe",
+            "confirmation_mot_de_passe",
+        }
+        if extra_fields:
+            raise serializers.ValidationError(
+                {"detail": "Seuls les champs de changement de mot de passe sont acceptés."}
+            )
+
+        user = self.context["request"].user
+        if not user.check_password(attrs["mot_de_passe_actuel"]):
+            raise serializers.ValidationError(
+                {"mot_de_passe_actuel": "Le mot de passe actuel est incorrect."}
+            )
+        if attrs["nouveau_mot_de_passe"] != attrs["confirmation_mot_de_passe"]:
+            raise serializers.ValidationError(
+                {"confirmation_mot_de_passe": "La confirmation ne correspond pas au nouveau mot de passe."}
+            )
+        try:
+            validate_password(attrs["nouveau_mot_de_passe"], user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(
+                {"nouveau_mot_de_passe": list(error.messages)}
+            ) from error
+        return attrs
+
+    def update(self, instance, validated_data):
+        instance.set_password(validated_data["nouveau_mot_de_passe"])
+        instance.save(update_fields=["password"])
+        return instance
+
+
+class EleveResponsableSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Eleve
+        fields = ["id", "nom", "classe", "etablissement", "etat"]
+        read_only_fields = ["id"]
+
+
+class BadgeResponsableSerializer(serializers.ModelSerializer):
+    eleve_id = serializers.IntegerField(read_only=True)
+    eleve_nom = serializers.CharField(source="eleve.nom", read_only=True)
+    badge_remplace = serializers.IntegerField(
+        source="badge_remplace_id",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = Badge
+        fields = ["id", "eleve_id", "eleve_nom", "etat", "date_emission", "badge_remplace"]
+        read_only_fields = fields
+
+
+class BadgeEtatSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Badge
+        fields = ["etat"]
+
+    def validate(self, attrs):
+        extra_fields = set(self.initial_data) - {"etat"}
+        if extra_fields:
+            raise serializers.ValidationError(
+                {"detail": "Seul l’état du badge peut être modifié."}
+            )
+
+        badge = self.instance
+        if badge is None:
+            return attrs
+
+        if badge.remplacants.exists():
+            raise serializers.ValidationError(
+                {"detail": "Ce badge a été remplacé et ne peut plus être modifié."}
+            )
+
+        new_state = attrs["etat"]
+        if new_state == badge.etat:
+            return attrs
+        if badge.etat in (Badge.Etat.PERDU, Badge.Etat.REVOQUE):
+            raise serializers.ValidationError(
+                {"etat": "Un badge perdu ou révoqué ne peut pas être réactivé; réémettez-le."}
+            )
+        if new_state == Badge.Etat.ACTIF:
+            if badge.eleve.etat != Eleve.Etat.ACTIF:
+                raise serializers.ValidationError(
+                    {"etat": "Un élève inactif ne peut pas avoir de badge actif."}
+                )
+            if Badge.objects.filter(
+                eleve=badge.eleve,
+                etat=Badge.Etat.ACTIF,
+            ).exclude(pk=badge.pk).exists():
+                raise serializers.ValidationError(
+                    {"etat": "Cet élève possède déjà un badge actif."}
+                )
+        return attrs
 
 
 

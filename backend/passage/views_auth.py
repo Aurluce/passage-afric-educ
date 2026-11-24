@@ -11,6 +11,7 @@ from .serializers import LoginSerializer, UtilisateurPublicSerializer
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
     throttle_scope = "login"  # 5/min via settings.DEFAULT_THROTTLE_RATES
 
     def post(self, request):

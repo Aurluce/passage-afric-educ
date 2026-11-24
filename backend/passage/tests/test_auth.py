@@ -2,6 +2,7 @@
 import pytest
 from django.urls import reverse
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from passage.models import Utilisateur
 
@@ -25,6 +26,17 @@ def test_login_ok(client, agent):
     assert r.status_code == 200
     assert "access" in r.data and "refresh" in r.data
     assert r.data["user"]["role"] == "AGENT"
+
+
+def test_login_ignore_un_jeton_de_mauvais_type(client, agent):
+    refresh = str(RefreshToken.for_user(agent))
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh}")
+    r = client.post(
+        reverse("auth-login"),
+        {"identifiant": "agent01", "password": "MotDePasse!123"},
+    )
+    assert r.status_code == 200
+    assert "access" in r.data and "refresh" in r.data
 
 
 def test_login_message_identique_identifiant_inexistant_ou_mdp_faux(client, agent):

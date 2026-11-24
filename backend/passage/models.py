@@ -6,6 +6,7 @@ import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -98,6 +99,15 @@ class Badge(models.Model):
     badge_remplace = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="remplacants",
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["eleve"],
+                condition=Q(etat="ACTIF"),
+                name="uniq_badge_actif_par_eleve",
+            ),
+        ]
 
     def est_valide(self) -> bool:
         return self.etat == self.Etat.ACTIF

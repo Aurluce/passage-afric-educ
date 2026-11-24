@@ -67,6 +67,10 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 
+# Désactivé pour l'API : les requêtes POST ne peuvent pas être redirigées
+# pour ajouter un slash final (APPEND_SLASH=True par défaut).
+APPEND_SLASH = False
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -98,7 +102,10 @@ DATABASES = {
 AUTH_USER_MODEL = "passage.Utilisateur"
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "OPTIONS": {"user_attributes": ["identifiant", "nom"]},
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
      "OPTIONS": {"min_length": 8}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
@@ -124,6 +131,11 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 LANGUAGE_CODE = "fr-fr"
 TIME_ZONE = "Africa/Douala"
