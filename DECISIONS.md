@@ -69,3 +69,14 @@
   - Créer les deux : message contradictoire au parent.
   - Créer seulement ABSENCE : faux, l'élève est passé.
 - **Conséquence** : le seed produit 3 anomalies (ABSENCE E2, HORS_FENETRE E1, DOUBLE_SCAN E3) au lieu de 4.
+
+
+## D13 — Passage avec horloge manifestement fausse : signaler, pas rejeter ni corriger
+
+- **Constat** : le sujet demande ce qu'on fait d'un passage dont `heure_locale` diverge fortement de `heure_serveur` (horloge de l'appareil de l'agent déréglée).
+- **Option retenue** : enregistrer le passage avec `sync_etat=REJETE_HORLOGE`, créer une anomalie `HORLOGE_SUSPECTE`, et ne pas compter le passage comme valide pour la détection d'anomalies standard. Le parent reçoit un message honnête (« le badge a été scanné à une heure suspecte »).
+- **Options écartées** :
+  - Rejeter le passage : on perd la donnée et l'agent ne comprend pas pourquoi le scan échoue.
+  - Corriger silencieusement (`heure_locale := heure_serveur`) : on perd l'information et on masque un problème matériel.
+- **Seuil** : 30 minutes (`HORLOGE_TOLERANCE_MINUTES` dans `services/anomalies.py`).
+- **Lien** : réutilise la 5ᵉ anomalie `HORLOGE_SUSPECTE` déjà détectée par `detect_anomalies`.
