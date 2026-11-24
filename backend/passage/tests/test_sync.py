@@ -29,18 +29,20 @@ def contexte():
     return {"eleve": eleve, "badge": badge, "point": point}
 
 
+from passage.services.badge import generer_code
+
 def _lot(badge, point, n=20):
     maintenant = timezone.now()
     return [
         {
             "event_id_local": uuid.uuid4(),
             "badge_id": badge.id,
+            "badge_code": generer_code(badge),
             "point_id": point.id,
             "heure_locale": maintenant,
         }
         for _ in range(n)
     ]
-
 
 def test_20_passages_20_en_base(contexte):
     lot = _lot(contexte["badge"], contexte["point"], n=20)
@@ -64,6 +66,7 @@ def test_horloge_fausse_rejetee(contexte):
         "event_id_local": uuid.uuid4(),
         "badge_id": contexte["badge"].id,
         "point_id": contexte["point"].id,
+        "badge_code": generer_code(contexte["badge"]),
         "heure_locale": maintenant - timedelta(hours=2),
     }]
     rapport = synchroniser_passages("dev-test-01", lot)

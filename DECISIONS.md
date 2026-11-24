@@ -11,6 +11,10 @@
 - **Contrainte imposée à l'agent** : le badge doit être affiché *au moment* du scan (pas imprimé, pas photographié). Un scan au-delà de la fenêtre de tolérance est refusé.
 - **Coût** : une table `NonceConsomme` + job de purge des nonces de plus de 24 h.
 
+- **Complément D1.1** : `verifier_et_consommer` retourne `False` pour **tout** refus (mal formé, signature invalide, hors fenêtre, rejeu). L'appelant n'a pas à distinguer les cas — cela évite une fuite d'information et simplifie l'agrégation dans `RapportSync.rejected_signature`.
+
+
+
 
 ## D2 — Idempotence de la synchronisation par `event_id_local`
 

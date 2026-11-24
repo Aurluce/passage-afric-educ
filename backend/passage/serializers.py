@@ -42,12 +42,11 @@ class UtilisateurPublicSerializer(serializers.ModelSerializer):
 
 
 class PassageSyncItemSerializer(serializers.Serializer):
-    """Un passage individuel dans un lot de synchronisation."""
     event_id_local = serializers.UUIDField()
     badge_id = serializers.IntegerField()
+    badge_code = serializers.CharField(max_length=200)
     point_id = serializers.IntegerField()
     heure_locale = serializers.DateTimeField()
-
 
 class PassageSyncLotSerializer(serializers.Serializer):
     """Un lot de passages à synchroniser."""
