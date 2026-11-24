@@ -100,3 +100,21 @@
 - **Option retenue** : un parent qui demande un élève d'un autre reçoit **404**. Le filtre `parents__parent=request.user` est appliqué dans le `QuerySet`, avant le `get_object_or_404`.
 - **Option écartée** : 403 — révèle l'existence de l'élève à un parent non autorisé.
 - **Test associé** : `test_parent_change_id_dans_url_refuse_404`.
+
+
+## D16 — Fournisseur LLM : OpenAI GPT-4o-mini, gabarit sans clé
+
+- **Option retenue** : `OpenAIProvider` (GPT-4o-mini, `temperature=0`, `response_format=json_object`), sélectionné si `AI_API_KEY` est présente. Sinon `GabaritProvider`.
+- **Options écartées** : Anthropic Claude (équivalent techniquement, choix arbitraire porté sur OpenAI pour la familiarité de l'API), et absence de fournisseur par défaut (impossible, le sujet exige un mode dégradé explicite).
+- **Comportement sans clé** : `GabaritProvider` retourne le gabarit exact, sans appel réseau. C'est le scénario §3.4 « retirer la clé et afficher la synthèse ».
+
+## D17 — Cache de synthèse : `(classe, date, chiffres)`
+
+- **Option retenue** : `Synthese.objects.update_or_create(classe, date, defaults={"chiffres":..., "texte":..., "origine":...})`. Si la synthèse existe avec les **mêmes chiffres**, pas de nouvel appel ni de nouveau `JournalAppelIA`.
+- **Option écartée** : cache par TTL — inutile ici, les chiffres changent quand de nouveaux passages arrivent, et c'est le seul critère qui compte.
+- **Test** : `test_cache_evite_double_facturation`.
+
+## D18 — Sortie contrainte : JSON + Pydantic + 1 retry + gabarit
+
+- **Option retenue** : le modèle répond en JSON `{"texte": "..."}`, validé par `SortieSynthese` (Pydantic, `min_length=10`, `max_length=500`). Une réponse non conforme déclenche **un seul** retry, puis bascule sur le gabarit. Le chemin effectif (`MODELE`, `RETRY`, `GABARIT`, `PLAFOND`) est journalisé dans `JournalAppelIA`.
+- **Options écartées** : pas de retry (fragile face aux erreurs transitoires), plusieurs retries (coût multiplié sans bénéfice).
