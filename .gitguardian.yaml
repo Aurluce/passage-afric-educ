@@ -1,0 +1,14 @@
+version: 2
+
+secret:
+  ignored_paths:
+    - 'JOURNAL-IA.md'
+    - 'README.md'
+    - 'DECISIONS.md'
+    - 'backend/passage/tests/**'
+    - '.env.example'
+  ignored_detectors:
+    - 'Generic Password'
+  ignored_matches:
+    - name: "Mention de gsk_ dans JOURNAL-IA.md (documentation, pas un secret)"
+      match: "gsk_"
