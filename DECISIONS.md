@@ -127,3 +127,11 @@
 - **Constat** : `_messages_du_jour` filtrait initialement sur `MessageSortant.date__date` (champ `auto_now_add`). En test, les anomalies sont datées `2025-01-15` alors que les `MessageSortant` sont insérés aujourd'hui, donc le compteur restait à 0 et le plafond ne bloquait pas.
 - **Option retenue** : compter par `anomalie__date=jour`. C'est sémantiquement juste : le plafond limite le nombre de notifications pour les **anomalies du jour**, pas le nombre d'insertions du jour.
 - **Complément** : `plafond` est désormais injectable en paramètre de `notifier_anomalies`, pour les tests et pour un éventuel ajustement par établissement.
+
+## D28 — PWA et responsive
+
+- **Option retenue** : manifeste PWA, icônes PNG 192/512 et Apple Touch, métadonnées iOS/viewport et enregistrement du service worker uniquement en production.
+- **Hors ligne** : le service worker précache le manifeste, les icônes et une page de repli, puis met en cache les navigations et ressources Next statiques consultées. Il ne met jamais en cache les requêtes `/api`; les scans restent gérés par la file IndexedDB existante.
+- **Responsive** : conservation des grilles Tailwind à points de rupture et prévention du zoom automatique des champs sur iOS, sans imposer des boutons pleine largeur à toutes les vues.
+- **Limite** : l’installation et le service worker nécessitent un contexte sécurisé (HTTPS, sauf `localhost`). Le service worker est désactivé en développement.
+- **À vérifier sur téléphone** : installation depuis HTTPS et affichage autonome sur Android Chrome et iOS Safari.
