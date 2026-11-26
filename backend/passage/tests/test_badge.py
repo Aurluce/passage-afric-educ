@@ -5,7 +5,7 @@ import uuid
 import pytest
 
 from passage.models import Badge, Eleve, NonceConsomme
-from passage.services.badge import generer_code, verifier_et_consommer
+from passage.services.badge import CODE_TTL_SECONDS, generer_code, verifier_et_consommer
 
 pytestmark = pytest.mark.django_db
 
@@ -42,8 +42,15 @@ def test_code_signature_invalide_refuse(badge):
     assert verifier_et_consommer(badge, ":".join(parts)) is False
 
 
-def test_code_timestamp_trop_vieux_refuse(badge):
-    """Un code généré il y a 30 s (au-delà de ±1 pas de 5 s) est refusé."""
-    vieux = int(time.time()) - 30
+def test_code_reste_valide_pendant_120_secondes(badge):
+    maintenant = int(time.time())
+    code = generer_code(badge, maintenant=maintenant)
+    assert CODE_TTL_SECONDS == 120
+    assert verifier_et_consommer(badge, code, maintenant=maintenant + 120) is True
+
+
+def test_code_timestamp_expire_refuse(badge):
+    maintenant = int(time.time())
+    vieux = maintenant - CODE_TTL_SECONDS - 1
     code = generer_code(badge, maintenant=vieux)
-    assert verifier_et_consommer(badge, code) is False
+    assert verifier_et_consommer(badge, code, maintenant=maintenant) is False

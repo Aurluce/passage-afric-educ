@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from passage.models import Badge, Eleve, Passage, PointControle, Utilisateur
-from passage.services.badge import generer_code
+from passage.services.badge import CODE_TTL_SECONDS, generer_code, verifier_et_consommer
 from passage.services.sync import synchroniser_passages
 
 pytestmark = pytest.mark.django_db
@@ -48,6 +48,59 @@ def test_responsable_emet_un_badge_sans_exposer_le_secret(contexte):
     assert response.data["etat"] == Badge.Etat.ACTIF
     assert "secret" not in response.data
     assert len(Badge.objects.get(pk=response.data["id"]).secret) == 64
+
+
+def test_responsable_emet_un_qr_temporaire_sans_donnee_nominative(contexte):
+    badge = Badge.objects.create(
+        eleve=contexte["eleve"],
+        secret="e" * 64,
+        etat=Badge.Etat.ACTIF,
+    )
+
+    response = _client(contexte["responsable"]).post(
+        f"/api/responsable/badges/{badge.id}/code",
+    )
+
+    assert response.status_code == 200
+    assert set(response.data) == {"badge_id", "code", "code_secours", "expire_dans"}
+    assert response.data["badge_id"] == badge.id
+    assert len(response.data["code_secours"].replace("-", "")) == 12
+    assert response.data["expire_dans"] == CODE_TTL_SECONDS == 120
+    assert response["Cache-Control"] == "no-store"
+    assert verifier_et_consommer(badge, response.data["code"]) is True
+
+
+@pytest.mark.parametrize("role", ["AGENT", "PARENT"])
+def test_seul_le_responsable_peut_emettre_un_qr(role, contexte):
+    user = Utilisateur.objects.create_user(
+        identifiant=f"qr-{role.lower()}",
+        password="MotDePasse!2026",
+        role=role,
+        nom="Utilisateur test",
+    )
+    badge = Badge.objects.create(
+        eleve=contexte["eleve"],
+        secret="f" * 64,
+        etat=Badge.Etat.ACTIF,
+    )
+
+    response = _client(user).post(f"/api/responsable/badges/{badge.id}/code")
+
+    assert response.status_code == 403
+
+
+def test_badge_inactif_ne_peut_pas_produire_de_qr(contexte):
+    badge = Badge.objects.create(
+        eleve=contexte["eleve"],
+        secret="g" * 64,
+        etat=Badge.Etat.SUSPENDU,
+    )
+
+    response = _client(contexte["responsable"]).post(
+        f"/api/responsable/badges/{badge.id}/code",
+    )
+
+    assert response.status_code == 404
 
 
 def test_un_eleve_ne_peut_pas_recevoir_deux_badges_initiaux(contexte):
