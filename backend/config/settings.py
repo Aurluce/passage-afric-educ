@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
@@ -57,6 +58,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -145,8 +147,8 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-BADGE_TIME_STEP_SECONDS = env_int("BADGE_TIME_STEP_SECONDS", 5)
-BADGE_TOLERANCE_STEPS = env_int("BADGE_TOLERANCE_STEPS", 1)
+BADGE_CODE_TTL_SECONDS = env_int("BADGE_CODE_TTL_SECONDS", 120)
+PASSAGE_SYNC_MAX_DELAY_MINUTES = env_int("PASSAGE_SYNC_MAX_DELAY_MINUTES", 10)
 PARENT_MSG_DAILY_CAP = env_int("PARENT_MSG_DAILY_CAP", 3)
 
 AI_PROVIDER = os.getenv("AI_PROVIDER", "openai")

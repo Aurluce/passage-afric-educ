@@ -5,7 +5,7 @@ Le client (agent hors ligne) envoie un lot de passages. Chaque passage
 porte un `event_id_local` (UUID généré au scan) qui rend l'insertion
 idempotente : rejouer le même lot ne crée pas de doublon.
 
-Un passage dont l'horloge locale diverge de plus de 30 min de l'heure
+Un passage dont l'horloge locale diverge de plus de 10 min de l'heure
 serveur est enregistré avec `sync_etat=REJETE_HORLOGE` (D13), et une
 anomalie HORLOGE_SUSPECTE est créée.
 """
@@ -14,13 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from passage.services.badge import verifier_et_consommer
+from passage.services.badge import retrouver_code_secours, verifier_et_consommer
 
 from passage.models import Anomalie, Badge, Passage, PointControle
 
-HORLOGE_TOLERANCE_MINUTES = 30
+HORLOGE_TOLERANCE_MINUTES = getattr(settings, "PASSAGE_SYNC_MAX_DELAY_MINUTES", 10)
 
 
 @dataclass
@@ -45,8 +46,24 @@ def synchroniser_passages(appareil_id: str, passages: list[dict]) -> RapportSync
 
 
         for data in passages:
-            # 1. Résolution du badge
-            badge = Badge.objects.filter(id=data["badge_id"]).first()
+            # 1. Resolve either the badge ID from a QR scan or the manual fallback code.
+            code_secours = data.get("code_secours", "").strip()
+            if code_secours:
+                code_secours_record = retrouver_code_secours(code_secours)
+                if code_secours_record is None:
+                    rapport.rejected_signature += 1
+                    rapport.details.append(
+                        {
+                            "event_id_local": str(data["event_id_local"]),
+                            "statut": "REJETE_SIGNATURE",
+                        }
+                    )
+                    continue
+                badge = code_secours_record.badge
+                badge_code = code_secours_record.badge_code
+            else:
+                badge = Badge.objects.filter(id=data.get("badge_id")).first()
+                badge_code = data.get("badge_code", "")
             if badge is None or not badge.est_valide():
                 rapport.rejected_badge += 1
                 rapport.details.append(
@@ -64,8 +81,13 @@ def synchroniser_passages(appareil_id: str, passages: list[dict]) -> RapportSync
                 )
                 continue
 
-            # 3. Signature du badge (consomme le nonce)
-            if not verifier_et_consommer(badge, data["badge_code"]):
+            # A queued offline scan is checked against its captured event time.
+            heure_locale = data["heure_locale"]
+            if not verifier_et_consommer(
+                badge,
+                badge_code,
+                maintenant=int(heure_locale.timestamp()),
+            ):
                 rapport.rejected_signature += 1
                 rapport.details.append(
                     {"event_id_local": str(data["event_id_local"]), "statut": "REJETE_SIGNATURE"}
@@ -82,7 +104,6 @@ def synchroniser_passages(appareil_id: str, passages: list[dict]) -> RapportSync
                 continue
 
             # 5. Création (avec D13 horloge)
-            heure_locale = data["heure_locale"]
             heure_serveur = timezone.now()
             horloge_suspecte = abs(heure_locale - heure_serveur) > seuil
             sync_etat = (

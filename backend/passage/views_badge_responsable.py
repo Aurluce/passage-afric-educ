@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from passage.models import Badge, Eleve
 from passage.permissions import EstResponsable
 from passage.serializers import BadgeEtatSerializer, BadgeResponsableSerializer
+from passage.services.badge import CODE_TTL_SECONDS, generer_code, generer_code_secours
 
 
 def _nouveau_badge(eleve, badge_remplace=None):
@@ -29,6 +30,28 @@ class BadgesResponsableView(generics.ListAPIView):
         Badge.objects.select_related("eleve", "badge_remplace")
         .order_by("-date_emission", "-id")
     )
+
+
+class BadgeCodeResponsableView(APIView):
+    """Émet un QR temporaire pour un badge actif, sous le rôle responsable."""
+    permission_classes = [EstResponsable]
+
+    def post(self, request, badge_id):
+        badge = get_object_or_404(
+            Badge.objects.select_related("eleve"),
+            pk=badge_id,
+            etat=Badge.Etat.ACTIF,
+            eleve__etat=Eleve.Etat.ACTIF,
+        )
+        badge_code = generer_code(badge)
+        response = Response({
+            "badge_id": badge.id,
+            "code": badge_code,
+            "code_secours": generer_code_secours(badge, badge_code),
+            "expire_dans": CODE_TTL_SECONDS,
+        })
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class BadgeInitialView(APIView):

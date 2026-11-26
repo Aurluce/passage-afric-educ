@@ -25,7 +25,10 @@ class PassageSyncView(APIView):
     permission_classes = [EstAgent]
 
     def post(self, request):
-        serializer = PassageSyncLotSerializer(data=request.data)
+        serializer = PassageSyncLotSerializer(
+            data=request.data,
+            context={"request": request},
+        )
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -40,6 +43,7 @@ class PassageSyncView(APIView):
                 "ignored": rapport.ignored,
                 "rejected_clock": rapport.rejected_clock,
                 "rejected_badge": rapport.rejected_badge,
+                "rejected_signature": rapport.rejected_signature,
                 "details": rapport.details,
             },
             status=status.HTTP_200_OK,
