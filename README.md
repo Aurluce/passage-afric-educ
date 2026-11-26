@@ -36,7 +36,7 @@ Suivi des passages d'élèves par badge, en conditions de réseau dégradé, ave
 | Base de données | PostgreSQL 17 | Supporté par Django 5.x (MariaDB 10.4 de XAMPP refusé au démarrage) |
 | Auth | JWT simplejwt + blacklist | Déconnexion effective, contrôle de rôle serveur |
 | Frontend | Next.js 15 + TypeScript | Choix du candidat ; le sujet autorise HTML/JS simple |
-| Mode hors ligne | IndexedDB (front) + `event_id_local` (back) | Idempotence via `UNIQUE(badge, event_id_local)` |
+| Mode hors ligne | IndexedDB (front) + `event_id_local` (back) | Idempotence via `UNIQUE(badge, event_id_local)` ; synchronisation sous 10 min |
 | IA | Groq (compatible OpenAI) + `GabaritProvider` fallback | Mode dégradé obligatoire, coût plafonné |
 
 Les arbitrages détaillés sont dans `DECISIONS.md` (D1 à D24).
@@ -120,6 +120,8 @@ Créés par `python manage.py seed_demo` :
 | Parent | `parent1` | `Parent1!2026` | E1, E2 (fratrie) |
 | Parent | `parent2` | `Parent2!2026` | E3 |
 
+Avant le premier pointage, le Responsable affecte un ou plusieurs points de contrôle à chaque compte Agent dans **Configuration → Affectation des Agents**. L’Agent choisit son point parmi cette liste sur l’écran de scan; le serveur refuse les passages associés aux points non affectés.
+
 Cinq élèves (`E1` à `E5`), deux points de contrôle (`Portail entrée`, `Portail sortie`), itinéraires Lun–Ven, passages historiques au `2025-01-15` produisant trois anomalies.
 
 ## Commandes métier
@@ -164,6 +166,7 @@ Couverture des scénarios §3.4 du sujet :
 | Scénario | Test |
 |---|---|
 | 20 scans hors ligne → 20 passages | `test_sync::test_20_passages_20_en_base` |
+| Scan conservé et synchronisé après 9 min hors ligne | `test_sync::test_scan_hors_ligne_synchronise_dans_les_10_minutes` |
 | Rejeu de lot → pas de doublon | `test_sync::test_rejeu_idempotent` |
 | Photo du badge → refus | `test_badge::test_code_rejoue_refuse` |
 | Horloge fausse → signalée | `test_sync::test_horloge_fausse_rejetee` |
@@ -201,7 +204,8 @@ L'application fonctionne sans clé API :
 - **Sans `AI_API_KEY`** : `get_provider()` retourne `GabaritProvider`, la synthèse est produite à partir d'un gabarit exact. Test : `test_mode_degrade_sans_cle_gabarit_exact`.
 - **Avec clé mais service en erreur** : 1 retry puis bascule gabarit (`generer_synthese`). Le chemin (`MODELE`, `RETRY`, `GABARIT`, `PLAFOND`) est tracé dans `JournalAppelIA`.
 - **Plafond atteint** (`AI_COST_CAP_EUR_PER_DAY`) : pas d'appel, gabarit, tracé `PLAFOND`.
-- **Hors ligne (agent)** : les scans sont stockés en `IndexedDB` et synchronisés au retour du réseau. Endpoint `POST /api/passages/sync/`, idempotent via `UNIQUE(badge, event_id_local)`.
+- **Scanner QR** : le responsable présente le QR d'un badge actif ; il se renouvelle automatiquement toutes les 90 s. Le QR contient uniquement `badge_id` et le code signé, sans nom ni classe. Si la caméra est indisponible, l'agent peut saisir le code de secours de 12 caractères affiché avec le QR; il partage la même expiration (120 s) et le même usage unique.
+- **Hors ligne (agent)** : les scans sont conservés en `IndexedDB` et synchronisés au retour du réseau dans les 10 minutes. Le code doit être valide au moment de la capture (durée de vie : 120 s). Endpoint `POST /api/passages/sync/`, idempotent via `UNIQUE(badge, event_id_local)`.
 
 Vérification en démo :
 

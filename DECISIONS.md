@@ -3,12 +3,15 @@
 
 ## D1 — Badge tournant : nonce signé à durée courte + anti-rejeu serveur
 
-- **Option retenue** : à chaque scan, le badge affiche un code = `HMAC-SHA256(badge.secret, nonce || timestamp)` avec un pas de temps de 5 s et une tolérance de ±1 pas. Le serveur vérifie la signature puis consomme le `nonce` dans la table `NonceConsomme` (contrainte `UNIQUE(badge, nonce)`).
+- **Option retenue** : à chaque scan, le serveur génère un code = `HMAC-SHA256(badge.secret, nonce || timestamp)`, valable 120 s. Il vérifie la signature puis consomme le `nonce` dans la table `NonceConsomme` (contrainte `UNIQUE(badge, nonce)`).
+- **QR** : le responsable présente le QR dynamique d'un badge actif ; l'agent ne peut que le lire. Le QR encode seulement `badge_id` et le code signé (`{"badge_id": ..., "code": ...}`), jamais le nom ou la classe. Il est renouvelé automatiquement toutes les 90 s (avant son expiration à 120 s).
+- **Saisie de secours** : le responsable voit aussi un code aléatoire de 12 caractères avec le QR. Son empreinte est enregistrée avec le même code signé ; l'agent peut saisir ce code à la place du QR, sans connaître l'identifiant du badge. QR et code de secours consomment le même nonce, ont la même expiration de 120 s et ne peuvent valider qu'un passage au total.
 - **Options écartées** :
-  - TOTP-like à 30 s : une photo du badge reste exploitable jusqu'à 30 s, insuffisant pour le scénario §3.4 « photographier puis présenter depuis un autre appareil ».
+  - TOTP-like à 30 s : ne répond pas au besoin de conserver le code pendant la synchronisation différée des scans.
   - Code statique contenant l'identifiant de l'élève : **éliminatoire** selon §3.2.
   - Challenge-réponse : suppose un badge actif (appareil), or le badge est un support affiché, pas un émetteur.
-- **Contrainte imposée à l'agent** : le badge doit être affiché *au moment* du scan (pas imprimé, pas photographié). Un scan au-delà de la fenêtre de tolérance est refusé.
+- **Contrainte imposée** : le QR doit être présenté à l'écran au moment du scan, et scanné pendant sa validité de 120 s. Le nonce ne peut être consommé qu'une fois.
+- **Mode hors ligne** : le scanner enregistre le scan sur l'heure locale capturée et le synchronise sous 10 min. Le serveur compare le code à l'heure du scan, puis consomme le nonce. En l'absence d'horloge de confiance sur l'appareil, cette heure locale n'est pas vérifiable cryptographiquement.
 - **Coût** : une table `NonceConsomme` + job de purge des nonces de plus de 24 h.
 
 - **Complément D1.1** : `verifier_et_consommer` retourne `False` pour **tout** refus (mal formé, signature invalide, hors fenêtre, rejeu). L'appelant n'a pas à distinguer les cas — cela évite une fuite d'information et simplifie l'agrégation dans `RapportSync.rejected_signature`.
@@ -83,6 +86,7 @@
   - Rejeter le passage : on perd la donnée et l'agent ne comprend pas pourquoi le scan échoue.
   - Corriger silencieusement (`heure_locale := heure_serveur`) : on perd l'information et on masque un problème matériel.
 - **Seuil** : 30 minutes (`HORLOGE_TOLERANCE_MINUTES` dans `services/anomalies.py`).
+- **Délai hors ligne** : la synchronisation est autorisée pendant 10 minutes (`PASSAGE_SYNC_MAX_DELAY_MINUTES`). Le serveur vérifie la validité du code à l'heure capturée au scan ; cette heure locale n'est pas vérifiable cryptographiquement sans appareil de confiance.
 - **Lien** : réutilise la 5ᵉ anomalie `HORLOGE_SUSPECTE` déjà détectée par `detect_anomalies`.
 
 
@@ -127,6 +131,14 @@
 - **Constat** : `_messages_du_jour` filtrait initialement sur `MessageSortant.date__date` (champ `auto_now_add`). En test, les anomalies sont datées `2025-01-15` alors que les `MessageSortant` sont insérés aujourd'hui, donc le compteur restait à 0 et le plafond ne bloquait pas.
 - **Option retenue** : compter par `anomalie__date=jour`. C'est sémantiquement juste : le plafond limite le nombre de notifications pour les **anomalies du jour**, pas le nombre d'insertions du jour.
 - **Complément** : `plafond` est désormais injectable en paramètre de `notifier_anomalies`, pour les tests et pour un éventuel ajustement par établissement.
+
+
+## D4ter — Faux positifs GitGuardian
+
+- **Constat** : GitGuardian a signalé 4 « Generic Password » dans l'historique. Vérification : la chaîne `gsk_` n'apparaît que dans `JOURNAL-IA.md` (documentation de l'incident de clé), pas dans un fichier de configuration. `.env.example` a `AI_API_KEY=` (vide). Les autres alertes portent sur des mots de passe de test (`Agent!2026`, `MotDePasse!123`) dans `backend/passage/tests/`.
+- **Action** : `.gitguardian.yaml` avec `ignored_paths` pour les tests et la doc, et `ignored_matches` pour la chaîne `gsk_` littérale.
+- **Décision** : ne pas purger l'historique (ce ne sont pas de vrais secrets). La purge `git filter-repo` de D4bis ne s'applique pas ici.
+
 
 ## D28 — PWA et responsive
 
