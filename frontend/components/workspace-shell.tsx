@@ -6,7 +6,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowRightFromBracket,
+  faBell,
   faIdCard,
+  faListCheck,
+  faRoute,
+  faTimeline,
   faUser,
   faUserShield,
   faUserGraduate,
@@ -37,6 +41,10 @@ export function WorkspaceShell({
     ? [
         { label: "Élèves", href: "/responsable", icon: faUserGraduate },
         { label: "Badges", href: "/responsable/badges", icon: faIdCard },
+        { label: "Configuration", href: "/responsable/configuration", icon: faRoute },
+        { label: "Passages", href: "/responsable/passages", icon: faTimeline },
+        { label: "Anomalies", href: "/responsable/anomalies", icon: faBell },
+        { label: "Synthèse", href: "/responsable/synthese", icon: faListCheck },
         { label: "Mon compte", href: "/responsable/compte", icon: faUser },
       ]
     : [{ label: details.label, href: details.href, icon: details.icon }];

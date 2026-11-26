@@ -9,9 +9,11 @@ import {
   faMagnifyingGlass,
   faPause,
   faPlus,
+  faQrcode,
   faRotateLeft,
   faTriangleExclamation,
 } from "@fortawesome/free-solid-svg-icons";
+import { QRCodeSVG } from "qrcode.react";
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { RoleGate } from "@/components/role-gate";
@@ -40,6 +42,11 @@ function BadgeManagement() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [pendingAction, setPendingAction] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
+  const [qrBadgeId, setQrBadgeId] = React.useState<number | null>(null);
+  const [qrCode, setQrCode] = React.useState("");
+  const [qrFallbackCode, setQrFallbackCode] = React.useState("");
+  const [qrStatus, setQrStatus] = React.useState("");
+  const [qrRefreshKey, setQrRefreshKey] = React.useState(0);
   const [error, setError] = React.useState("");
   const [success, setSuccess] = React.useState("");
 
@@ -66,6 +73,38 @@ function BadgeManagement() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadData]);
+
+  React.useEffect(() => {
+    if (qrBadgeId === null) return;
+    let active = true;
+    let timer: number | undefined;
+
+    const renew = async () => {
+      try {
+        const result = await api.generateBadgeQrCode(qrBadgeId);
+        if (!active) return;
+        setQrCode(result.code);
+        setQrFallbackCode(result.code_secours);
+        setQrStatus(`QR renouvelé automatiquement. Validité : ${result.expire_dans} s.`);
+        timer = window.setTimeout(
+          () => void renew(),
+          Math.max(5_000, (result.expire_dans - 30) * 1_000)
+        );
+      } catch (qrError) {
+        if (!active) return;
+        setQrCode("");
+        setQrFallbackCode("");
+        setQrStatus(messageFromError(qrError, "Impossible de renouveler le QR."));
+        timer = window.setTimeout(() => void renew(), 15_000);
+      }
+    };
+
+    void renew();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [qrBadgeId, qrRefreshKey]);
 
   const studentsWithBadges = new Set(badges.map((badge) => badge.eleve_id));
   const replacedBadgeIds = new Set(
@@ -105,6 +144,10 @@ function BadgeManagement() {
     setError("");
     setSuccess("");
     try {
+      if (qrBadgeId === badge.id && etat !== "ACTIF") {
+        setQrBadgeId(null);
+        setQrCode("");
+      }
       const updated = await api.updateBadgeState(badge.id, etat);
       setBadges((current) => current.map((item) =>
         item.id === updated.id ? updated : item
@@ -122,6 +165,10 @@ function BadgeManagement() {
     setError("");
     setSuccess("");
     try {
+      if (qrBadgeId === badge.id) {
+        setQrBadgeId(null);
+        setQrCode("");
+      }
       const created = await api.reissueBadge(badge.id);
       setBadges((current) => [
         created,
@@ -185,6 +232,65 @@ function BadgeManagement() {
           >
             {error || success}
           </div>
+        )}
+
+        {qrBadgeId !== null && (
+          <section className="mb-6 flex flex-col items-center gap-3 rounded-[1.5rem] border border-[#dfe5da] bg-white p-6 text-center">
+            <h2 className="font-semibold text-[#183b32]">
+              QR temporaire — {badges.find((badge) => badge.id === qrBadgeId)?.eleve_nom ?? `badge #${qrBadgeId}`}
+            </h2>
+            <p className="text-sm text-[#718078]">
+              Le QR et son code de secours ne valident qu’un seul passage. Tous deux se renouvellent automatiquement avant expiration.
+            </p>
+            {qrCode && (
+              <QRCodeSVG
+                value={JSON.stringify({ badge_id: qrBadgeId, code: qrCode })}
+                size={240}
+                level="M"
+                title="QR dynamique du badge"
+              />
+            )}
+            {qrFallbackCode && (
+              <div className="rounded-xl border border-[#dfe5da] bg-[#fcfcf9] px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#718078]">
+                  Code de secours si le QR ne peut pas être scanné
+                </p>
+                <p aria-label="Code de secours à usage unique" className="mt-2 font-mono text-2xl font-bold tracking-[0.18em] text-[#183b32]">
+                  {qrFallbackCode}
+                </p>
+                <p className="mt-2 text-xs text-[#87938b]">
+                  À saisir sur l’écran Agent · usage unique · expire avec le QR
+                </p>
+              </div>
+            )}
+            <p role="status" className="text-sm text-[#527963]">{qrStatus}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setQrCode("");
+                setQrFallbackCode("");
+                setQrStatus("Génération d’un nouveau QR…");
+                setQrRefreshKey((key) => key + 1);
+              }}
+            >
+              <FontAwesomeIcon icon={faRotateLeft} className="mr-2 h-3 w-3" />
+              Nouveau QR pour le scan suivant
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setQrBadgeId(null);
+                setQrCode("");
+                setQrFallbackCode("");
+              }}
+            >
+              Fermer le QR
+            </Button>
+          </section>
         )}
 
         <section className="mb-6 overflow-hidden rounded-[1.5rem] border border-[#e4e6dc] bg-white">
@@ -308,6 +414,24 @@ function BadgeManagement() {
 
                     {isCurrent && studentIsActive && (
                       <div className="flex flex-wrap gap-2">
+                      {badge.etat === "ACTIF" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={pendingAction !== null}
+                          onClick={() => {
+                            setQrCode("");
+                            setQrFallbackCode("");
+                            setQrStatus("Génération du QR temporaire…");
+                            setQrBadgeId(badge.id);
+                          }}
+                          className="min-h-11 !rounded-lg !border-[#dfe5da] !text-[#52655e] sm:min-h-0"
+                        >
+                          <FontAwesomeIcon icon={faQrcode} className="mr-2 h-3 w-3" />
+                          Présenter le QR
+                        </Button>
+                      )}
                         {(badge.etat === "ACTIF" || badge.etat === "SUSPENDU") && (
                           <>
                             {badge.etat === "ACTIF" ? (

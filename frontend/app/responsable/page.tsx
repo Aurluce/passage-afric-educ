@@ -37,6 +37,9 @@ function ResponsableWorkspace() {
   const [editingStudent, setEditingStudent] = React.useState<Student | null>(null);
   const [form, setForm] = React.useState<StudentInput>(EMPTY_FORM);
   const [search, setSearch] = React.useState("");
+  const [classFilter, setClassFilter] = React.useState("");
+  const [schoolFilter, setSchoolFilter] = React.useState("");
+  const [stateFilter, setStateFilter] = React.useState("");
   const [error, setError] = React.useState("");
   const [success, setSuccess] = React.useState("");
 
@@ -61,10 +64,14 @@ function ResponsableWorkspace() {
 
   const activeCount = students.filter((student) => student.etat === "ACTIF").length;
   const inactiveCount = students.length - activeCount;
+  const classes = Array.from(new Set(students.map((student) => student.classe))).sort((a, b) => a.localeCompare(b, "fr"));
+  const schools = Array.from(new Set(students.map((student) => student.etablissement))).sort((a, b) => a.localeCompare(b, "fr"));
   const visibleStudents = students.filter((student) =>
-    `${student.nom} ${student.classe} ${student.etablissement}`
-      .toLocaleLowerCase("fr")
+    `${student.nom} ${student.classe} ${student.etablissement}`.toLocaleLowerCase("fr")
       .includes(search.trim().toLocaleLowerCase("fr"))
+    && (!classFilter || student.classe === classFilter)
+    && (!schoolFilter || student.etablissement === schoolFilter)
+    && (!stateFilter || student.etat === stateFilter)
   );
 
   const resetForm = () => {
@@ -193,14 +200,15 @@ function ResponsableWorkspace() {
 
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section className="overflow-hidden rounded-[1.5rem] border border-[#e4e6dc] bg-white">
-            <div className="flex flex-col gap-4 border-b border-[#edf0e9] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-              <div>
+            <div className="space-y-4 border-b border-[#edf0e9] px-5 py-5 sm:px-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
                 <h2 className="font-semibold text-[#183b32]">Liste des élèves</h2>
                 <p className="mt-1 text-xs text-[#87938b]">
                   {isLoading ? "Chargement…" : `${visibleStudents.length} résultat(s)`}
                 </p>
-              </div>
-              <label className="relative block w-full sm:max-w-xs">
+                </div>
+                <label className="relative block w-full sm:max-w-xs">
                 <span className="sr-only">Rechercher un élève</span>
                 <FontAwesomeIcon
                   icon={faMagnifyingGlass}
@@ -213,7 +221,41 @@ function ResponsableWorkspace() {
                   placeholder="Nom, classe, établissement"
                   className="w-full rounded-xl border border-[#dfe5da] bg-[#fcfcf9] py-2.5 pl-10 pr-3 text-sm text-[#354c41] outline-none transition placeholder:text-[#a3ada5] focus:border-[#527963] focus:bg-white focus:ring-4 focus:ring-[#527963]/10"
                 />
-              </label>
+                </label>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <label className="sr-only" htmlFor="student-class-filter">Filtrer par classe</label>
+                <select
+                  id="student-class-filter"
+                  value={classFilter}
+                  onChange={(event) => setClassFilter(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5da] bg-[#fcfcf9] px-3 text-sm text-[#52655e] outline-none focus:border-[#527963] focus:ring-4 focus:ring-[#527963]/10"
+                >
+                  <option value="">Toutes les classes</option>
+                  {classes.map((classe) => <option key={classe} value={classe}>{classe}</option>)}
+                </select>
+                <label className="sr-only" htmlFor="student-school-filter">Filtrer par établissement</label>
+                <select
+                  id="student-school-filter"
+                  value={schoolFilter}
+                  onChange={(event) => setSchoolFilter(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5da] bg-[#fcfcf9] px-3 text-sm text-[#52655e] outline-none focus:border-[#527963] focus:ring-4 focus:ring-[#527963]/10"
+                >
+                  <option value="">Tous les établissements</option>
+                  {schools.map((school) => <option key={school} value={school}>{school}</option>)}
+                </select>
+                <label className="sr-only" htmlFor="student-state-filter">Filtrer par état</label>
+                <select
+                  id="student-state-filter"
+                  value={stateFilter}
+                  onChange={(event) => setStateFilter(event.target.value)}
+                  className="min-h-11 w-full rounded-xl border border-[#dfe5da] bg-[#fcfcf9] px-3 text-sm text-[#52655e] outline-none focus:border-[#527963] focus:ring-4 focus:ring-[#527963]/10"
+                >
+                  <option value="">Tous les états</option>
+                  <option value="ACTIF">Actifs</option>
+                  <option value="INACTIF">Inactifs</option>
+                </select>
+              </div>
             </div>
 
             {isLoading ? (
