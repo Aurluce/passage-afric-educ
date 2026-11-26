@@ -38,6 +38,11 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     identifiant = models.CharField(max_length=64, unique=True)
     nom = models.CharField(max_length=120)
     role = models.CharField(max_length=16, choices=Role.choices)
+    points_controle = models.ManyToManyField(
+        "PointControle",
+        blank=True,
+        related_name="agents",
+    )
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_creation = models.DateTimeField(auto_now_add=True)
@@ -123,6 +128,14 @@ class NonceConsomme(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["badge", "nonce"], name="uniq_badge_nonce"),
         ]
+
+
+class BadgeCodeSecours(models.Model):
+    """Code manuel à usage unique associé à un code tournant de badge."""
+    badge = models.ForeignKey(Badge, on_delete=models.CASCADE, related_name="codes_secours")
+    code_hash = models.CharField(max_length=64, unique=True)
+    badge_code = models.CharField(max_length=200)
+    cree_le = models.DateTimeField(auto_now_add=True)
 
 
 # --------------------------------------------------------------------------

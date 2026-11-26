@@ -5,7 +5,15 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import Utilisateur, Eleve, Passage, Anomalie, Badge
+from .models import (
+    Anomalie,
+    Badge,
+    Eleve,
+    Itineraire,
+    Passage,
+    PointControle,
+    Utilisateur,
+)
 
 MESSAGE_ERREUR_IDENTIQUE = "Identifiants invalides."
 
@@ -102,6 +110,86 @@ class EleveResponsableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
 
+class PointControleResponsableSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PointControle
+        fields = ["id", "etablissement", "libelle", "type"]
+        read_only_fields = ["id"]
+
+
+class AgentResponsableSerializer(serializers.ModelSerializer):
+    point_controle_ids = serializers.PrimaryKeyRelatedField(
+        source="points_controle",
+        queryset=PointControle.objects.all(),
+        many=True,
+    )
+
+    class Meta:
+        model = Utilisateur
+        fields = ["id", "identifiant", "nom", "point_controle_ids"]
+        read_only_fields = ["id", "identifiant", "nom"]
+
+    def validate(self, attrs):
+        extra_fields = set(self.initial_data) - {"point_controle_ids"}
+        if extra_fields:
+            raise serializers.ValidationError(
+                {"detail": "Seuls les points de contrôle affectés à l’agent peuvent être modifiés."}
+            )
+        return attrs
+
+
+class ItineraireResponsableSerializer(serializers.ModelSerializer):
+    eleve_id = serializers.PrimaryKeyRelatedField(
+        source="eleve", queryset=Eleve.objects.all()
+    )
+    eleve_nom = serializers.CharField(source="eleve.nom", read_only=True)
+    point_id = serializers.PrimaryKeyRelatedField(
+        source="point", queryset=PointControle.objects.all()
+    )
+    point_libelle = serializers.CharField(source="point.libelle", read_only=True)
+    ordre = serializers.IntegerField(min_value=1, max_value=32767)
+    jours_application = serializers.RegexField(r"^[01]{7}$")
+
+    class Meta:
+        model = Itineraire
+        fields = [
+            "id", "eleve_id", "eleve_nom", "point_id", "point_libelle",
+            "ordre", "heure_debut", "heure_fin", "jours_application",
+        ]
+        read_only_fields = ["id", "eleve_nom", "point_libelle"]
+
+    def validate(self, attrs):
+        eleve = attrs.get("eleve", getattr(self.instance, "eleve", None))
+        point = attrs.get("point", getattr(self.instance, "point", None))
+        ordre = attrs.get("ordre", getattr(self.instance, "ordre", None))
+        debut = attrs.get("heure_debut", getattr(self.instance, "heure_debut", None))
+        fin = attrs.get("heure_fin", getattr(self.instance, "heure_fin", None))
+        jours = attrs.get("jours_application", getattr(self.instance, "jours_application", None))
+
+        if eleve is None or point is None:
+            raise serializers.ValidationError(
+                {"detail": "Un élève et un point de contrôle sont requis."}
+            )
+        if eleve.etablissement != point.etablissement:
+            raise serializers.ValidationError({
+                "point_id": "Le point de contrôle doit appartenir à l’établissement de l’élève."
+            })
+        if debut is not None and fin is not None and fin <= debut:
+            raise serializers.ValidationError({
+                "heure_fin": "L’heure de fin doit être postérieure à l’heure de début."
+            })
+        if jours == "0000000":
+            raise serializers.ValidationError({
+                "jours_application": "Sélectionnez au moins un jour d’application."
+            })
+        conflit = Itineraire.objects.filter(eleve=eleve).exclude(pk=getattr(self.instance, "pk", None))
+        if ordre is not None and conflit.filter(ordre=ordre).exists():
+            raise serializers.ValidationError({"ordre": "Cet ordre est déjà utilisé pour cet élève."})
+        if conflit.filter(point=point).exists():
+            raise serializers.ValidationError({"point_id": "Ce point est déjà présent dans l’itinéraire."})
+        return attrs
+
+
 class BadgeResponsableSerializer(serializers.ModelSerializer):
     eleve_id = serializers.IntegerField(read_only=True)
     eleve_nom = serializers.CharField(source="eleve.nom", read_only=True)
@@ -163,10 +251,25 @@ class BadgeEtatSerializer(serializers.ModelSerializer):
 
 class PassageSyncItemSerializer(serializers.Serializer):
     event_id_local = serializers.UUIDField()
-    badge_id = serializers.IntegerField()
-    badge_code = serializers.CharField(max_length=200)
+    badge_id = serializers.IntegerField(required=False, allow_null=True)
+    badge_code = serializers.CharField(
+        max_length=200, required=False, allow_blank=True, allow_null=True,
+    )
+    code_secours = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, allow_null=True,
+    )
     point_id = serializers.IntegerField()
     heure_locale = serializers.DateTimeField()
+
+    def validate(self, attrs):
+        manual_code = (attrs.get("code_secours") or "").strip()
+        has_qr_code = attrs.get("badge_id") is not None and bool(attrs.get("badge_code"))
+        if bool(manual_code) == has_qr_code:
+            raise serializers.ValidationError(
+                "Fournissez soit le QR signé, soit le code de secours."
+            )
+        return attrs
+
 
 class PassageSyncLotSerializer(serializers.Serializer):
     """Un lot de passages à synchroniser."""
@@ -178,6 +281,17 @@ class PassageSyncLotSerializer(serializers.Serializer):
             raise serializers.ValidationError("Le lot ne peut pas être vide.")
         if len(value) > 500:
             raise serializers.ValidationError("Lot trop volumineux (max 500 passages).")
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        assigned_point_ids = set(user.points_controle.values_list("id", flat=True)) if user else set()
+        if not assigned_point_ids:
+            raise serializers.ValidationError(
+                "Aucun point de contrôle n’est affecté à votre compte Agent."
+            )
+        if any(passage["point_id"] not in assigned_point_ids for passage in value):
+            raise serializers.ValidationError(
+                "Un ou plusieurs passages ne correspondent pas aux points affectés à votre compte."
+            )
         return value
 
 
@@ -203,6 +317,21 @@ class PassageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class PassageResponsableSerializer(serializers.ModelSerializer):
+    eleve_id = serializers.IntegerField(source="badge.eleve_id", read_only=True)
+    eleve_nom = serializers.CharField(source="badge.eleve.nom", read_only=True)
+    point_id = serializers.IntegerField(read_only=True)
+    point_libelle = serializers.CharField(source="point.libelle", read_only=True)
+
+    class Meta:
+        model = Passage
+        fields = [
+            "id", "eleve_id", "eleve_nom", "point_id", "point_libelle",
+            "heure_locale", "heure_serveur", "appareil_id", "sync_etat",
+        ]
+        read_only_fields = fields
+
+
 class AnomalieSerializer(serializers.ModelSerializer):
     eleve_nom = serializers.CharField(source="eleve.nom", read_only=True)
 
@@ -210,3 +339,41 @@ class AnomalieSerializer(serializers.ModelSerializer):
         model = Anomalie
         fields = ["id", "eleve_nom", "type", "date", "traite", "cree_le"]
         read_only_fields = fields
+
+
+class AnomalieResponsableSerializer(serializers.ModelSerializer):
+    eleve_nom = serializers.CharField(source="eleve.nom", read_only=True)
+    passage_point = serializers.CharField(
+        source="passage.point.libelle", read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = Anomalie
+        fields = [
+            "id", "eleve_id", "eleve_nom", "type", "date", "traite",
+            "cree_le", "passage_id", "passage_point",
+        ]
+        read_only_fields = [
+            "id", "eleve_id", "eleve_nom", "type", "date",
+            "cree_le", "passage_id", "passage_point",
+        ]
+
+    def validate(self, attrs):
+        extra_fields = set(self.initial_data) - {"traite"}
+        if extra_fields:
+            raise serializers.ValidationError(
+                {"detail": "Seul l’état de traitement peut être modifié."}
+            )
+        if "traite" not in attrs:
+            raise serializers.ValidationError({"traite": "Ce champ est requis."})
+        return attrs
+
+
+class SyntheseResponsableSerializer(serializers.Serializer):
+    classe = serializers.CharField(max_length=32, allow_blank=False, trim_whitespace=True)
+    date = serializers.DateField(required=False)
+
+    def validate_classe(self, value):
+        if not value:
+            raise serializers.ValidationError("La classe est requise.")
+        return value
