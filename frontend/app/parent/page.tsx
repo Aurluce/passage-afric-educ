@@ -8,6 +8,7 @@ import {
   faClock,
   faExclamationTriangle,
   faCheckCircle,
+  faBell,
   faSignOutAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import { Button } from "@/components/button";
@@ -49,6 +50,27 @@ interface AnomalieRecord {
   traite: boolean;
 }
 
+interface NotificationRecord {
+  id: number;
+  eleve_nom: string;
+  anomalie_type: string;
+  anomalie_date: string;
+  texte: string;
+  etat: string;
+  date: string;
+}
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Douala",
+  });
+}
+
 function ParentWorkspace() {
   const { user, logout } = useAuth();
   const [enfants, setEnfants] = React.useState<Array<{
@@ -60,7 +82,22 @@ function ParentWorkspace() {
   const [selectedEnfant, setSelectedEnfant] = React.useState<number | null>(null);
   const [passages, setPassages] = React.useState<PassageRecord[]>([]);
   const [anomalies, setAnomalies] = React.useState<AnomalieRecord[]>([]);
+  const [notifications, setNotifications] = React.useState<NotificationRecord[]>([]);
+  const [notificationError, setNotificationError] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(true);
+
+  const fetchNotifications = React.useCallback(async () => {
+    const res = await fetch("/api/parent/notifications/", {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+      },
+    });
+    if (!res.ok) {
+      throw new Error("Impossible de charger les notifications.");
+    }
+    setNotifications((await res.json()) as NotificationRecord[]);
+    setNotificationError("");
+  }, []);
 
   const fetchEnfantData = React.useCallback(async (eleveId: number) => {
     try {
@@ -119,6 +156,23 @@ function ParentWorkspace() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [fetchEnfants]);
+
+  React.useEffect(() => {
+    let active = true;
+    const loadNotifications = () => {
+      void fetchNotifications().catch((error: unknown) => {
+        if (active) {
+          setNotificationError(error instanceof Error ? error.message : "Impossible de charger les notifications.");
+        }
+      });
+    };
+    loadNotifications();
+    const interval = window.setInterval(loadNotifications, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [fetchNotifications]);
 
   const handleEnfantChange = (id: number) => {
     setSelectedEnfant(id);
@@ -200,6 +254,38 @@ function ParentWorkspace() {
         ))}
       </section>
 
+      <section className="mb-6 overflow-hidden rounded-[1.5rem] border border-[#e4e6dc] bg-white">
+        <div className="flex items-center justify-between border-b border-[#edf0e9] px-5 py-5 sm:px-6">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff4df] text-[#956b16]">
+              <FontAwesomeIcon icon={faBell} className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="font-semibold text-[#183b32]">Notifications</h2>
+              <p className="mt-1 text-xs text-[#87938b]">Messages reçus pour vos enfants</p>
+            </div>
+          </div>
+          <span className="rounded-full bg-[#f2f4ee] px-3 py-1.5 text-xs font-semibold text-[#718078]">
+            {notifications.length}
+          </span>
+        </div>
+        {notificationError ? (
+          <p role="alert" className="px-5 py-4 text-sm text-red-700">{notificationError}</p>
+        ) : notifications.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-[#718078]">Aucune notification pour le moment.</p>
+        ) : (
+          <ul className="divide-y divide-[#edf0e9]">
+            {notifications.map((notification) => (
+              <li key={notification.id} className="px-5 py-4 sm:px-6">
+                <p className="text-sm font-semibold text-[#354c41]">{notification.eleve_nom}</p>
+                <p className="mt-1 text-sm leading-6 text-[#52655e]">{notification.texte}</p>
+                <p className="mt-1 text-xs text-[#87938b]">{formatDateTime(notification.date)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className="grid items-start gap-5 lg:grid-cols-2">
         <div className="overflow-hidden rounded-[1.5rem] border border-[#e4e6dc] bg-white">
           <div className="flex items-center justify-between border-b border-[#edf0e9] px-5 py-5 sm:px-6">
@@ -228,12 +314,7 @@ function ParentWorkspace() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[#354c41]">{p.eleve_nom || enfant?.nom}</p>
                       <p className="mt-0.5 truncate text-xs text-[#87938b]">
-                        {p.point_libelle} · {new Date(p.heure_locale).toLocaleString("fr-FR", {
-                          day: "2-digit",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {p.point_libelle} · {formatDateTime(p.heure_locale)}
                       </p>
                     </div>
                   </div>
@@ -275,7 +356,11 @@ function ParentWorkspace() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-[#354c41]">{a.eleve_nom || enfant?.nom}</p>
                         <p className="mt-0.5 text-xs text-[#87938b]">
-                          {new Date(a.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })}
+                          {new Date(`${a.date}T00:00:00`).toLocaleDateString("fr-FR", {
+                            day: "2-digit",
+                            month: "long",
+                            year: "numeric",
+                          })}
                           {!a.traite && <span className="ml-2 font-semibold text-[#a94f3c]">· À vérifier</span>}
                         </p>
                       </div>
