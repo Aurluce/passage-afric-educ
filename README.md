@@ -122,7 +122,7 @@ Créés par `python manage.py seed_demo` :
 
 Avant le premier pointage, le Responsable affecte un ou plusieurs points de contrôle à chaque compte Agent dans **Configuration → Affectation des Agents**. L’Agent choisit son point parmi cette liste sur l’écran de scan; le serveur refuse les passages associés aux points non affectés.
 
-Cinq élèves (`E1` à `E5`), deux points de contrôle (`Portail entrée`, `Portail sortie`), itinéraires Lun–Ven, passages historiques au `2025-01-15` produisant trois anomalies.
+Cinq élèves (`E1` à `E5`), deux points de contrôle (`Portail entrée`, `Portail sortie`) et itinéraires Lun–Ven. `seed_demo` crée ses nouveaux passages sur la dernière journée ouvrée; les anciennes données déjà enregistrées ne sont pas réécrites.
 
 ## Commandes métier
 
@@ -138,6 +138,9 @@ python manage.py detect_anomalies --date 2025-01-15
 # Envoie les notifications parent (plafond PARENT_MSG_DAILY_CAP)
 python manage.py notifier_anomalies --date 2025-01-15
 
+# Vérifie la présence et crée les notifications visibles dans l'espace Parent
+python manage.py verifier_presence
+
 # Produit (ou réutilise) la synthèse d'une classe
 python manage.py synthese_jour --classe "6e A" --date 2025-01-15
 ```
@@ -147,10 +150,12 @@ python manage.py synthese_jour --classe "6e A" --date 2025-01-15
 La détection d'anomalies doit tourner sans que personne n'ouvre l'application. En production :
 
 ```cron
-*/5 * * * * cd /chemin/vers/backend && .venv/bin/python manage.py detect_anomalies
+*/5 * * * * cd /chemin/vers/passage-afric-educ/backend && ../.venv/bin/python manage.py verifier_presence
 ```
 
-Démonstration : `crontab -l` affiche la ligne, l'anomalie `ABSENCE` apparaît à la clôture de la fenêtre sans intervention manuelle.
+Ajouter cette ligne avec `crontab -e`. La commande vérifie les itinéraires dont la fenêtre d'entrée est terminée, crée une anomalie d'absence si aucun portail n'a enregistré l'élève ce jour-là, puis enregistre la notification dans l'espace Parent. Les passages aux portails prouvent la présence même s'ils sont hors de la plage prévue. Les jours sont déterminés par `jours_application`; les jours fériés ne sont pas encore configurés.
+
+La tâche est idempotente et peut tourner toutes les cinq minutes. Les notifications apparaissent dans l'espace Parent et la page les actualise chaque minute; il ne s'agit pas d'une notification push envoyée quand l'application est fermée.
 
 ## Tests
 

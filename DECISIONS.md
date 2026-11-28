@@ -61,21 +61,21 @@
 - **Conséquence** : le seed ne crée **que** les passages ; les anomalies sont produites par la commande `detect_anomalies`, ce qui permet de démontrer le scénario §3.4 « laisser passer la fin d'une fenêtre sans scan, montrer l'anomalie apparaître sans intervention ».
 
 
-## D8 — Dates du seed : date passée fixe + aujourd'hui
+## D8 — Dates du seed : dernière journée ouvrée
 
-- **Option retenue** : passages historiques et anomalies à `2025-01-15` (mercredi) ; passages « live » de la démo à `timezone.localdate()`.
-- **Raison** : la date fixe rend les tests reproductibles (pas de dépendance à la date d'exécution) ; la date du jour permet à la vidéo de montrer un scan en direct et son anomalie.
-- **Option écartée** : tout à `today` — rend les tests fragiles les week-ends et jours fériés (l'itinéraire Lun–Ven ne s'applique pas).
+- **Option retenue** : les nouveaux passages synthétiques du seed sont datés de la dernière journée ouvrée, calculée en heure `Africa/Douala`; les UUID des lignes seedées restent stables pour éviter les doublons lors des relances.
+- **Raison** : les exemples de démonstration apparaissent à une date récente, tandis que les anciens passages déjà enregistrés ne sont pas modifiés.
+- **Limite** : le seed ne connaît pas les jours fériés; les dates déterministes des tests restent indépendantes de la date d'exécution.
 
 
-## D11 — Un HORS_FENETRE supprime l'ABSENCE correspondante
+## D11 — Un passage portail confirme la présence
 
-- **Constat** : un passage hors fenêtre (ex. sortie à 14:10 pour une fenêtre 15:30–16:15) déclenchait à la fois `HORS_FENETRE` (le passage est hors plage) et `ABSENCE` (aucun passage dans la fenêtre). Le parent recevait deux messages contradictoires.
-- **Option retenue** : si un passage existe sur le point mais hors fenêtre, on ne crée pas d'`ABSENCE` — le `HORS_FENETRE` porte l'information la plus précise (« présent, mais en dehors de la plage attendue »).
+- **Constat** : vérifier tous les itinéraires créait une fausse `ABSENCE` lorsque l'élève était entré à l'école mais n'avait pas encore scanné sa sortie.
+- **Option retenue** : après la fin de la fenêtre du premier itinéraire de type portail, créer `ABSENCE` seulement si aucun passage reçu à un portail n'existe pour cet élève ce jour-là. Un passage hors fenêtre prouve la présence; `HORS_FENETRE` en conserve le détail.
+- **Notification** : la commande planifiée `verifier_presence` détecte les anomalies puis enregistre les notifications destinées aux parents; celles-ci sont consultables dans leur espace.
 - **Options écartées** :
-  - Créer les deux : message contradictoire au parent.
-  - Créer seulement ABSENCE : faux, l'élève est passé.
-- **Conséquence** : le seed produit 3 anomalies (ABSENCE E2, HORS_FENETRE E1, DOUBLE_SCAN E3) au lieu de 4.
+  - Vérifier aussi la sortie comme une absence : présence scolaire déjà établie à l'entrée.
+  - Considérer un scan autobus comme une preuve de présence à l'école : le point n'est pas un portail scolaire.
 
 
 ## D13 — Passage avec horloge manifestement fausse : signaler, pas rejeter ni corriger
