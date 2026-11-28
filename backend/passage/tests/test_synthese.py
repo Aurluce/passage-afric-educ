@@ -55,15 +55,17 @@ def contexte():
     return {"classe": classe, "eleve": eleve}
 
 
-def test_mode_degrade_sans_cle_gabarit_exact(contexte):
-    """Garde-fou 2 : sans clé, la synthèse est produite à partir du gabarit."""
-    from passage.services.ai import GabaritProvider
+def test_mode_degrade_sans_cle_gabarit_exact(contexte, monkeypatch, settings):
+    """Garde-fou 2 : sans clé, la sélection automatique produit le gabarit exact."""
+    monkeypatch.setattr(settings, "AI_API_KEY", "")
+    monkeypatch.delenv("AI_API_KEY", raising=False)
 
-    resultat = generer_synthese(
-        contexte["classe"], JOUR, provider=GabaritProvider(),
-    )
+    resultat = generer_synthese(contexte["classe"], JOUR)
     assert resultat.origine == "GABARIT"
-    assert "1 élèves présents sur 1" in resultat.synthese.texte
+    assert resultat.synthese.texte == (
+        "1 élèves présents sur 1, 0 absent(s), "
+        "1 retard(s) au portail, 0 double(s) scan(s)."
+    )
     journal = JournalAppelIA.objects.last()
     assert journal.chemin == "GABARIT"
     assert journal.cout_estime == 0
