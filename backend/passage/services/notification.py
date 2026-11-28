@@ -2,12 +2,11 @@
 Notification des parents pour chaque anomalie (§3.3).
 
 - Chaque anomalie produit un message au parent (neutre, sans donnée sensible).
-- Le plafond PARENT_MSG_DAILY_CAP limite le nombre de messages par élève et par jour.
-  Au-delà, l'anomalie est enregistrée mais le message n'est pas émis, et le motif
-  est conservé dans `MessageSortant.motif_non_envoi`.
+- Le plafond PARENT_MSG_DAILY_CAP limite les envois externes par parent et par
+  jour. Les notifications intégrées ne sont pas plafonnées.
 - L'envoi réel est isolé derrière `NotificationProvider` : on peut brancher un
-  vrai service SMS sans toucher au reste. Le `ConsoleProvider` par défaut ne
-  fait que logger.
+  vrai service SMS sans toucher au reste. `InAppProvider` conserve les messages
+  dans l'espace Parent; `ConsoleProvider` sert au débogage.
 """
 from __future__ import annotations
 
@@ -34,10 +33,17 @@ class NotificationProvider(ABC):
 
 
 class ConsoleProvider(NotificationProvider):
-    """Implémentation par défaut : log uniquement."""
+    """Option de débogage : logue la notification."""
 
     def envoyer(self, destinataire: str, texte: str) -> bool:
         logger.info("[NOTIF -> %s] %s", destinataire, texte)
+        return True
+
+
+class InAppProvider(NotificationProvider):
+    """La notification est remise dans l'espace Parent via MessageSortant."""
+
+    def envoyer(self, destinataire: str, texte: str) -> bool:
         return True
 
 
@@ -78,7 +84,7 @@ def notifier_anomalies(
     plafond: int | None = None,
 ) -> dict:
     jour = jour or timezone.localdate()
-    provider = provider or ConsoleProvider()
+    provider = provider or InAppProvider()
     plafond = plafond if plafond is not None else getattr(settings, "PARENT_MSG_DAILY_CAP", 3)
 
     rapport = {"crees": 0, "bloques": 0, "ignores": 0}
@@ -95,7 +101,8 @@ def notifier_anomalies(
 
             texte = _texte_pour(anomalie)
             deja = _messages_du_jour(parent.id, jour)
-            if deja >= plafond:
+            # Le plafond concerne les envois externes, pas les messages intégrés.
+            if not isinstance(provider, InAppProvider) and deja >= plafond:
                 MessageSortant.objects.create(
                     parent=parent, anomalie=anomalie, texte=texte,
                     etat=MessageSortant.Etat.BLOQUE,

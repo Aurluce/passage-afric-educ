@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
+from django.conf import settings
 from django.utils import timezone
 
 from passage.models import Anomalie, Eleve, Itineraire, Passage
@@ -47,47 +48,42 @@ def detecter_anomalies(jour: date | None = None) -> RapportDetection:
 
 def _detecter_absences(eleve, itineraires, jour, rapport):
     maintenant = timezone.localtime()
-    for itin in itineraires:
-        if itin.jours_application[jour.weekday()] != "1":
-            continue
-        fin_fenetre = datetime.combine(jour, itin.heure_fin, tzinfo=maintenant.tzinfo)
-        if fin_fenetre >= maintenant:
-            continue
+    itineraires_entree = [
+        itin for itin in itineraires
+        if itin.point.type == "PORTAIL" and itin.jours_application[jour.weekday()] == "1"
+    ]
+    if not itineraires_entree:
+        return
 
-        passages = Passage.objects.filter(
-            badge__eleve=eleve,
-            point=itin.point,
-            heure_locale__date=jour,
-            sync_etat=Passage.SyncEtat.RECU,
-        ).values_list("heure_locale", flat=True)
+    itin = min(itineraires_entree, key=lambda item: item.ordre)
+    fin_fenetre = datetime.combine(jour, itin.heure_fin, tzinfo=maintenant.tzinfo)
+    grace_sync = getattr(settings, "PASSAGE_SYNC_MAX_DELAY_MINUTES", 10)
+    fin_fenetre += timedelta(minutes=grace_sync)
+    if fin_fenetre >= maintenant:
+        return
 
-        dans_fenetre = any(
-            itin.heure_debut <= timezone.localtime(h).time() <= itin.heure_fin
-            for h in passages
-        )
-        if dans_fenetre:
-            continue
+    # Tout passage reçu à un portail confirme la présence à l'école, même
+    # si l'élève a utilisé un autre portail ou est arrivé hors fenêtre.
+    passage_portail = Passage.objects.filter(
+        badge__eleve=eleve,
+        point__type="PORTAIL",
+        heure_locale__date=jour,
+        sync_etat=Passage.SyncEtat.RECU,
+    ).exists()
+    if passage_portail:
+        return
 
-        # D11 : un passage hors fenêtre prouve la présence, on ne crée
-        # pas d'ABSENCE (le HORS_FENETRE porte l'information).
-        hors_fenetre_existe = any(
-            not (itin.heure_debut <= timezone.localtime(h).time() <= itin.heure_fin)
-            for h in passages
-        )
-        if hors_fenetre_existe:
-            continue
-
-        anomalie = Anomalie.objects.filter(
-            eleve=eleve, type=Anomalie.Type.ABSENCE, date=jour, passage=None,
-        ).first()
-        if anomalie is None:
-            anomalie = Anomalie.objects.create(
-                eleve=eleve, type=Anomalie.Type.ABSENCE, date=jour,
-                passage=None, traite=False,
-            )
-            rapport.anomalies_creees.append(anomalie)
-        else:
-            rapport.anomalies_existantes.append(anomalie)
+    anomalie, creee = Anomalie.objects.get_or_create(
+        eleve=eleve,
+        type=Anomalie.Type.ABSENCE,
+        date=jour,
+        passage=None,
+        defaults={"traite": False},
+    )
+    if creee:
+        rapport.anomalies_creees.append(anomalie)
+    else:
+        rapport.anomalies_existantes.append(anomalie)
 
 
 def _detecter_hors_fenetre_et_point_inattendu(eleve, itineraires, jour, rapport):

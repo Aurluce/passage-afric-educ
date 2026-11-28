@@ -38,18 +38,19 @@ def jeu_de_donnees():
     e3 = Eleve.objects.create(nom="E3", classe="5e B", etablissement=etab)
     e4 = Eleve.objects.create(nom="E4", classe="4e C", etablissement=etab)
     e5 = Eleve.objects.create(nom="E5", classe="4e C", etablissement=etab)
+    e6 = Eleve.objects.create(nom="E6", classe="4e C", etablissement=etab)
 
     pe = PointControle.objects.create(etablissement=etab, libelle="Portail entree", type="PORTAIL")
     ps = PointControle.objects.create(etablissement=etab, libelle="Portail sortie", type="PORTAIL")
 
-    for e in [e1, e2, e3, e4, e5]:
+    for e in [e1, e2, e3, e4, e5, e6]:
         Itineraire.objects.create(eleve=e, point=pe, ordre=1,
             heure_debut=time(7, 0), heure_fin=time(7, 45), jours_application="1111100")
         Itineraire.objects.create(eleve=e, point=ps, ordre=2,
             heure_debut=time(15, 30), heure_fin=time(16, 15), jours_application="1111100")
 
     badges = {e.id: Badge.objects.create(eleve=e, secret="x"*32, etat="ACTIF")
-              for e in [e1, e2, e3, e4, e5]}
+              for e in [e1, e2, e3, e4, e5, e6]}
 
     _passage(badges[e1.id], pe, _dt(7, 15))
     _passage(badges[e1.id], ps, _dt(14, 10))
@@ -61,7 +62,7 @@ def jeu_de_donnees():
         _passage(badges[e.id], pe, _dt(7, 10))
         _passage(badges[e.id], ps, _dt(15, 40))
 
-    return {"e1": e1, "e2": e2, "e3": e3, "e4": e4, "e5": e5,
+    return {"e1": e1, "e2": e2, "e3": e3, "e4": e4, "e5": e5, "e6": e6,
             "pe": pe, "ps": ps, "badges": badges}
 
 
@@ -72,8 +73,8 @@ def test_detecter_anomalies_historique(jeu_de_donnees):
     anomalies = list(Anomalie.objects.all().values_list("eleve__nom", "type"))
     assert sorted(anomalies) == sorted([
         ("E1", "HORS_FENETRE"),
-        ("E2", "ABSENCE"),
         ("E3", "DOUBLE_SCAN"),
+        ("E6", "ABSENCE"),
     ])
 
 
@@ -82,6 +83,32 @@ def test_detection_idempotente(jeu_de_donnees):
     rapport2 = detecter_anomalies(JOUR)
     assert rapport2.total_creees == 0
     assert len(rapport2.anomalies_existantes) == 3
+
+
+def test_absence_non_signalee_avant_fin_entree(jeu_de_donnees, monkeypatch):
+    def heure_locale(value=None):
+        return _dt(7, 30) if value is None else value.astimezone(TZ)
+
+    monkeypatch.setattr("passage.services.anomalies.timezone.localtime", heure_locale)
+    detecter_anomalies(JOUR)
+
+    assert not Anomalie.objects.filter(
+        eleve=jeu_de_donnees["e6"], type=Anomalie.Type.ABSENCE,
+    ).exists()
+
+
+def test_absence_attend_fin_delai_sync(jeu_de_donnees, monkeypatch, settings):
+    settings.PASSAGE_SYNC_MAX_DELAY_MINUTES = 10
+
+    def heure_locale(value=None):
+        return _dt(7, 50) if value is None else value.astimezone(TZ)
+
+    monkeypatch.setattr("passage.services.anomalies.timezone.localtime", heure_locale)
+    detecter_anomalies(JOUR)
+
+    assert not Anomalie.objects.filter(
+        eleve=jeu_de_donnees["e6"], type=Anomalie.Type.ABSENCE,
+    ).exists()
 
 
 def test_horloge_suspecte(jeu_de_donnees):
