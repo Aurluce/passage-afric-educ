@@ -8,7 +8,7 @@ Ne crée AUCUNE anomalie : celles-ci sont produites par `detect_anomalies`
 à partir des passages. Voir DECISIONS.md (D7).
 """
 import secrets
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.core.management.base import BaseCommand
@@ -26,7 +26,13 @@ from passage.models import (
 )
 
 TZ = ZoneInfo("Africa/Douala")
-DATE_HISTORIQUE = date(2025, 1, 15)  # mercredi — voir D8
+
+
+def _date_demo() -> date:
+    jour = timezone.localdate()
+    while jour.weekday() >= 5:
+        jour -= timedelta(days=1)
+    return jour
 
 
 def _dt(day: date, h: int, m: int, s: int = 0) -> datetime:
@@ -39,6 +45,8 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        jour_demo = _date_demo()
+
         # --- Utilisateurs ---------------------------------------------------
         responsable = self._user("responsable", "Responsable!2026", "RESPONSABLE", "Mme Ngo")
         agent = self._user("agent01", "Agent!2026", "AGENT", "M. Mbarga")
@@ -59,6 +67,8 @@ class Command(BaseCommand):
         # --- Points de contrôle --------------------------------------------
         portail_entree = self._point("Collège de la Cité", "Portail entrée", "PORTAIL")
         portail_sortie = self._point("Collège de la Cité", "Portail sortie", "PORTAIL")
+        if not agent.points_controle.exists():
+            agent.points_controle.add(portail_entree)
 
         # --- Itinéraires (Lun–Ven) -----------------------------------------
         for eleve in [e1, e2, e3, e4, e5]:
@@ -68,23 +78,22 @@ class Command(BaseCommand):
         # --- Badges --------------------------------------------------------
         badges = {e.id: self._badge(e) for e in [e1, e2, e3, e4, e5]}
 
-        # --- Passages historiques (DATE_HISTORIQUE) ------------------------
+        # --- Passages de démonstration (dernière journée ouvrée) -----------
         # E1 : entrée OK + sortie HORS FENÊTRE (14:10) -> anomalie HORS_FENETRE
-        self._passage(badges[e1.id], portail_entree, _dt(DATE_HISTORIQUE, 7, 15), "dev-agent-01")
-        self._passage(badges[e1.id], portail_sortie, _dt(DATE_HISTORIQUE, 14, 10), "dev-agent-01")
+        self._passage(badges[e1.id], portail_entree, _dt(jour_demo, 7, 15), "dev-agent-01")
+        self._passage(badges[e1.id], portail_sortie, _dt(jour_demo, 14, 10), "dev-agent-01")
 
-        # E2 : entrée OK, RIEN sur la sortie -> anomalie ABSENCE (détectée à la clôture)
-        self._passage(badges[e2.id], portail_entree, _dt(DATE_HISTORIQUE, 7, 20), "dev-agent-01")
+        # E2 : aucun passage à l'entrée -> absence détectée après 7 h 45.
 
         # E3 : entrée OK, double scan à 30 s d'écart -> anomalie DOUBLE_SCAN
-        self._passage(badges[e3.id], portail_entree, _dt(DATE_HISTORIQUE, 7, 15, 0), "dev-agent-01")
-        self._passage(badges[e3.id], portail_entree, _dt(DATE_HISTORIQUE, 7, 15, 30), "dev-agent-01")
-        self._passage(badges[e3.id], portail_sortie, _dt(DATE_HISTORIQUE, 15, 45), "dev-agent-01")
+        self._passage(badges[e3.id], portail_entree, _dt(jour_demo, 7, 15, 0), "dev-agent-01")
+        self._passage(badges[e3.id], portail_entree, _dt(jour_demo, 7, 15, 30), "dev-agent-01")
+        self._passage(badges[e3.id], portail_sortie, _dt(jour_demo, 15, 45), "dev-agent-01")
 
         # E4, E5 : journée normale, aucune anomalie
         for e in [e4, e5]:
-            self._passage(badges[e.id], portail_entree, _dt(DATE_HISTORIQUE, 7, 10), "dev-agent-01")
-            self._passage(badges[e.id], portail_sortie, _dt(DATE_HISTORIQUE, 15, 40), "dev-agent-01")
+            self._passage(badges[e.id], portail_entree, _dt(jour_demo, 7, 10), "dev-agent-01")
+            self._passage(badges[e.id], portail_sortie, _dt(jour_demo, 15, 40), "dev-agent-01")
 
         self.stdout.write(self.style.SUCCESS("Seed terminé."))
         self.stdout.write(f"Comptes de test (mot de passe documenté dans le README) :")
@@ -135,10 +144,10 @@ class Command(BaseCommand):
         )
 
     def _passage(self, badge, point, dt_local, appareil_id):
-        # Idempotent via (badge, event_id_local) ; l'UUID est déterministe
-        # dans le seed pour qu'un rejeu produise la même clé.
-        event_id = _uuid5(badge.id, point.id, dt_local.isoformat())
-        Passage.objects.get_or_create(
+        # L'UUID stable permet au seed de déplacer ses propres lignes de démo
+        # vers la dernière journée ouvrée sans créer de doublons à chaque run.
+        event_id = _uuid5(badge.id, point.id, dt_local.time().isoformat())
+        Passage.objects.update_or_create(
             badge=badge, event_id_local=event_id,
             defaults={
                 "point": point,
