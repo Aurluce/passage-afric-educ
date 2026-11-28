@@ -4,11 +4,12 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from passage.models import Anomalie, Eleve, ParentEleve, Passage
+from passage.models import Anomalie, Eleve, MessageSortant, ParentEleve, Passage
 from passage.permissions import EstParent
 from passage.serializers import (
     AnomalieSerializer,
     EleveSerializer,
+    NotificationParentSerializer,
     PassageSerializer,
 )
 
@@ -66,3 +67,19 @@ class EnfantAnomaliesView(APIView):
             .order_by("-date", "-cree_le")
         )
         return Response(AnomalieSerializer(anomalies, many=True).data)
+
+
+class NotificationsParentView(APIView):
+    """GET /api/parent/notifications/ — notifications du parent connecté."""
+    permission_classes = [EstParent]
+
+    def get(self, request):
+        messages = (
+            MessageSortant.objects.filter(
+                parent=request.user,
+                etat=MessageSortant.Etat.ENVOYE,
+            )
+            .select_related("anomalie__eleve")
+            .order_by("-date")
+        )
+        return Response(NotificationParentSerializer(messages, many=True).data)

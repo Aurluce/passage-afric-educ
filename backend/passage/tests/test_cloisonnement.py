@@ -1,8 +1,10 @@
 """Tests du cloisonnement parent (D15, §2.2 éliminatoire)."""
+from datetime import date
+
 import pytest
 from rest_framework.test import APIClient
 
-from passage.models import Eleve, ParentEleve, Utilisateur
+from passage.models import Anomalie, Eleve, MessageSortant, ParentEleve, Utilisateur
 
 pytestmark = pytest.mark.django_db
 
@@ -47,6 +49,28 @@ def test_parent_change_id_dans_url_refuse_404(donnees):
     c = _client(donnees["parent1"])
     r = c.get(f"/api/parent/enfants/{donnees['e2'].id}/")  # E2 = autre parent
     assert r.status_code == 404
+
+
+def test_parent_ne_voit_que_ses_notifications(donnees):
+    anomalie1 = Anomalie.objects.create(
+        eleve=donnees["e1"], type=Anomalie.Type.ABSENCE, date=date(2026, 11, 27),
+    )
+    anomalie2 = Anomalie.objects.create(
+        eleve=donnees["e2"], type=Anomalie.Type.ABSENCE, date=date(2026, 11, 27),
+    )
+    MessageSortant.objects.create(
+        parent=donnees["parent1"], anomalie=anomalie1, texte="Absence E1.",
+        etat=MessageSortant.Etat.ENVOYE,
+    )
+    MessageSortant.objects.create(
+        parent=donnees["parent2"], anomalie=anomalie2, texte="Absence E2.",
+        etat=MessageSortant.Etat.ENVOYE,
+    )
+
+    response = _client(donnees["parent1"]).get("/api/parent/notifications/")
+
+    assert response.status_code == 200
+    assert [item["texte"] for item in response.data] == ["Absence E1."]
 
 
 def test_agent_interdit_sur_endpoint_parent(donnees):

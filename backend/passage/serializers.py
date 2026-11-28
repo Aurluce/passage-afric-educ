@@ -10,6 +10,7 @@ from .models import (
     Badge,
     Eleve,
     Itineraire,
+    MessageSortant,
     Passage,
     PointControle,
     Utilisateur,
@@ -338,6 +339,17 @@ class AnomalieSerializer(serializers.ModelSerializer):
     class Meta:
         model = Anomalie
         fields = ["id", "eleve_nom", "type", "date", "traite", "cree_le"]
+        read_only_fields = fields
+
+
+class NotificationParentSerializer(serializers.ModelSerializer):
+    eleve_nom = serializers.CharField(source="anomalie.eleve.nom", read_only=True)
+    anomalie_type = serializers.CharField(source="anomalie.type", read_only=True)
+    anomalie_date = serializers.DateField(source="anomalie.date", read_only=True)
+
+    class Meta:
+        model = MessageSortant
+        fields = ["id", "eleve_nom", "anomalie_type", "anomalie_date", "texte", "etat", "date"]
         read_only_fields = fields
 
 

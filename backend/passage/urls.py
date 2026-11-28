@@ -3,6 +3,7 @@ from django.urls import path
 from .views_auth import LoginView, LogoutView
 from .views_parent import (
     MesEnfantsView, EnfantDetailView, EnfantPassagesView, EnfantAnomaliesView,
+    NotificationsParentView,
 )
 from .views_sync import PassageSyncView
 from .views_responsable import ElevesResponsableView, EleveResponsableDetailView
@@ -201,4 +202,6 @@ urlpatterns = [
     path("parent/enfants/<int:eleve_id>/passages/", EnfantPassagesView.as_view(), name="parent-enfant-passages-slash"),
     path("parent/enfants/<int:eleve_id>/anomalies", EnfantAnomaliesView.as_view(), name="parent-enfant-anomalies"),
     path("parent/enfants/<int:eleve_id>/anomalies/", EnfantAnomaliesView.as_view(), name="parent-enfant-anomalies-slash"),
+    path("parent/notifications", NotificationsParentView.as_view(), name="parent-notifications"),
+    path("parent/notifications/", NotificationsParentView.as_view(), name="parent-notifications-slash"),
 ]
